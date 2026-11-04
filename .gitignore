@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# Variables y secretos
+.env
+.env.*
+!.env.example
+
+# Archivos de Excel
+*.xlsx
+*.xls
+*.xlsm
+
+# Registros
+*.log
+logs/
+
+# Configuración del editor
+.vscode/
+.idea/
+
+# Archivos temporales
+*.tmp
+*.bak
