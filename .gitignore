@@ -25,3 +25,19 @@ logs/
 # Archivos temporales
 *.tmp
 *.bak
+
+# Datos locales de Zero
+data/*.db
+*.db-journal
+.auth/
+evidence/
+
+# Evidencias y descargas del portal
+*.png
+*.pdf
+*.xml
+
+# Pruebas y empaquetado
+.pytest_cache/
+build/
+dist/
