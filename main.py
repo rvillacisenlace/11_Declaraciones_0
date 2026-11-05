@@ -6,14 +6,15 @@ import sys
 
 from config import settings
 from src.security import credential_repository
-from src.sri import authentication, declaration, navigation
+from src.sri import authentication, declaration, navigation, signature
 from src.sri.browser import open_context
 from src.utils.evidence import capturar
-from src.utils.exceptions import ZeroError
+from src.utils.exceptions import ConfigError, ZeroError
 from src.utils.logger import configurar_logging, get_logger
-from src.utils.validators import nombre_mes, periodo_a_declarar, url_corta
+from src.utils.validators import nombre_mes, periodo_a_declarar
 
 log = get_logger("zero")
+
 
 def _validacion_previa(cid: str, periodo: tuple[int, int]) -> None:
     """Hasta que exista el archivo de control, la validacion humana se confirma aqui y queda en el log."""
@@ -24,7 +25,22 @@ def _validacion_previa(cid: str, periodo: tuple[int, int]) -> None:
              cid, periodo[0], periodo[1], getpass.getuser())
 
 
-def _flujo(ctx, page, cid: str, periodo: tuple[int, int], hasta: str, cred) -> None:
+def _cargar_credenciales(cid: str, login: str, con_contador: bool, clave_maestra: str):
+    """Devuelve (credencial del contribuyente o None, credencial del contador o None)."""
+    cred = contador = None
+    if login == "auto":
+        cred = credential_repository.cargar(cid, clave_maestra)
+    if con_contador:
+        base = cred or credential_repository.cargar(cid, clave_maestra)
+        if not base.contador_id:
+            raise ConfigError(f"El contribuyente {cid} no tiene contador_id asignado")
+        contador = credential_repository.cargar(base.contador_id, clave_maestra)
+        if contador.tipo != "contador":
+            raise ConfigError(f"La fila {base.contador_id} no es de tipo 'contador'")
+    return cred, contador
+
+
+def _flujo(ctx, page, cid: str, periodo: tuple[int, int], hasta: str, cred, contador) -> None:
     if cred is None:  # solo desarrollo
         navigation.abrir_login(page)
         input("\nInicie sesion MANUALMENTE en la ventana de Edge (un solo intento) y presione ENTER... ")
@@ -51,12 +67,17 @@ def _flujo(ctx, page, cid: str, periodo: tuple[int, int], hasta: str, cred) -> N
 
     declaration.siguiente_perfilador(page)
     capturar(page, cid, periodo, "05_pantalla_firma")
+    if hasta == "firma":
+        return
+
+    signature.llenar_contador(page, contador)  # NO pulsa Aceptar: ese clic envia la declaracion
+    capturar(page, cid, periodo, "06_contador_listo")
 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="zero")
     ap.add_argument("--contribuyente", required=True, help="id interno (ni RUC ni nombre)")
-    ap.add_argument("--hasta", choices=("periodo", "siguiente", "valores", "firma"), default="periodo")
+    ap.add_argument("--hasta", choices=("periodo", "siguiente", "valores", "firma", "contador"), default="periodo")
     ap.add_argument("--login", choices=("auto", "manual"), default="auto",
                     help="auto: credenciales del Excel cifrado (produccion); manual: solo desarrollo")
     args = ap.parse_args(argv)
@@ -70,14 +91,16 @@ def main(argv=None) -> int:
     try:
         settings.validar()
         _validacion_previa(args.contribuyente, periodo)
-        cred = None
-        if args.login == "auto":
-            cred = credential_repository.cargar(
-                args.contribuyente, getpass.getpass("Contrasena del archivo de credenciales: "))
+        con_contador = args.hasta == "contador"
+        cred = contador = None
+        if args.login == "auto" or con_contador:
+            cred, contador = _cargar_credenciales(
+                args.contribuyente, args.login, con_contador,
+                getpass.getpass("Contrasena del archivo de credenciales: "))
         with open_context() as ctx:
             page = ctx.pages[0] if ctx.pages else ctx.new_page()
             try:
-                _flujo(ctx, page, args.contribuyente, periodo, args.hasta, cred)
+                _flujo(ctx, page, args.contribuyente, periodo, args.hasta, cred, contador)
             except Exception:
                 capturar(page, args.contribuyente, periodo, "error")
                 raise
