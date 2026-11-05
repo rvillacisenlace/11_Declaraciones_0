@@ -11,10 +11,9 @@ from src.sri.browser import open_context
 from src.utils.evidence import capturar
 from src.utils.exceptions import ZeroError
 from src.utils.logger import configurar_logging, get_logger
-from src.utils.validators import nombre_mes, periodo_a_declarar
+from src.utils.validators import nombre_mes, periodo_a_declarar, url_corta
 
 log = get_logger("zero")
-
 
 def _validacion_previa(cid: str, periodo: tuple[int, int]) -> None:
     """Hasta que exista el archivo de control, la validacion humana se confirma aqui y queda en el log."""
@@ -29,7 +28,6 @@ def _flujo(ctx, page, cid: str, periodo: tuple[int, int], hasta: str, cred) -> N
     if cred is None:  # solo desarrollo
         navigation.abrir_login(page)
         input("\nInicie sesion MANUALMENTE en la ventana de Edge (un solo intento) y presione ENTER... ")
-        log.info("URL tras el login manual: %s", url_corta(page.url))
     else:
         authentication.iniciar_sesion(ctx, page, settings.SRI_LOGIN_URL, cred)
     navigation.abrir_formulario_iva(page)
@@ -41,14 +39,24 @@ def _flujo(ctx, page, cid: str, periodo: tuple[int, int], hasta: str, cred) -> N
     if hasta == "periodo":
         return
 
-    declaration.siguiente(page)
+    declaration.siguiente(page, *periodo)
     capturar(page, cid, periodo, "03_despues_siguiente")
+    if hasta == "siguiente":
+        return
+
+    declaration.responder_valores_no(page)
+    capturar(page, cid, periodo, "04_valores_no")
+    if hasta == "valores":
+        return
+
+    declaration.siguiente_perfilador(page)
+    capturar(page, cid, periodo, "05_pantalla_firma")
 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="zero")
     ap.add_argument("--contribuyente", required=True, help="id interno (ni RUC ni nombre)")
-    ap.add_argument("--hasta", choices=("periodo", "siguiente"), default="periodo")
+    ap.add_argument("--hasta", choices=("periodo", "siguiente", "valores", "firma"), default="periodo")
     ap.add_argument("--login", choices=("auto", "manual"), default="auto",
                     help="auto: credenciales del Excel cifrado (produccion); manual: solo desarrollo")
     args = ap.parse_args(argv)

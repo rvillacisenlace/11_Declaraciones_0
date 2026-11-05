@@ -35,6 +35,6 @@ def ensure_dirs() -> None:
 def validar() -> None:
     from src.utils.exceptions import ConfigError
 
-    faltan = [n for n, v in (("SRI_LOGIN_URL", SRI_LOGIN_URL), ("FORM_IVA_URL", FORM_IVA_URL)) if not v]
+    faltan = [n for n, v in (("SRI_LOGIN_URL", SRI_LOGIN_URL),) if not v]
     if faltan:
         raise ConfigError(f"Faltan variables en {HOME / '.env'}: {', '.join(faltan)}")
