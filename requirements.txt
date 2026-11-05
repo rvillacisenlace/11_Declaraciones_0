@@ -1,0 +1,6 @@
+playwright
+python-dotenv
+tzdata
+msoffcrypto-tool
+openpyxl
+# desarrollo: pytest
