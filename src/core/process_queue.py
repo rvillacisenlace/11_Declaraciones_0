@@ -80,7 +80,7 @@ def procesar_lote(fideicomisos, periodo: tuple, repo, ejecutar, ejecucion_id: in
         repo.marcar(f.id, txt, Estado.EN_PROCESO, ejecucion_id=ejecucion_id, intento=True)
         res.procesados += 1
         try:
-            ejecutar(f)
+            detalle_ok = ejecutar(f)
         except KeyboardInterrupt:
             repo.marcar(f.id, txt, Estado.REVISION_MANUAL, "interrumpido por el operador: verificar en el SRI",
                         ejecucion_id)
