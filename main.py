@@ -1,11 +1,18 @@
-"""Zero - corte vertical 0.1: login manual, formulario de IVA, obligacion y periodo."""
+"""Zero 0.2: un fideicomiso (--contribuyente) o un lote (--lote). Nunca envia la declaracion todavia."""
 import argparse
 import getpass
+import os
 import re
 import sys
+from collections import Counter
 
 from config import settings
+from src.core.process_queue import procesar_lote
+from src.database.models import Estado
+from src.database.repository import Repositorio
 from src.security import credential_repository
+from src.security.credential_repository import Credencial
+from src.services.fideicomiso_service import cruzar_credenciales, leer_control, ruta_control
 from src.sri import authentication, declaration, navigation, signature
 from src.sri.browser import open_context
 from src.utils.evidence import capturar
@@ -25,18 +32,45 @@ def _validacion_previa(cid: str, periodo: tuple[int, int]) -> None:
              cid, periodo[0], periodo[1], getpass.getuser())
 
 
+def _fideicomiso(cid: str):
+    """Busca el ID en el Control y exige que sea procesable (DECLARA_0 = SI y datos validos)."""
+    r = leer_control(ruta_control())
+    for p in r.pendientes:
+        if p.id == cid:
+            return p
+    for e in r.excluidos:
+        if e.id == cid:
+            raise ConfigError(f"El fideicomiso {cid} esta excluido: {e.motivo}")
+    raise ConfigError(f"El fideicomiso {cid} no esta marcado con SI en DECLARA_0 (o no existe en el Control)")
+
+
 def _cargar_credenciales(cid: str, login: str, con_contador: bool, clave_maestra: str):
-    """Devuelve (credencial del contribuyente o None, credencial del contador o None)."""
+    """Devuelve (credencial del fideicomiso o None, credencial del contador o None). Cruce por RUC."""
     cred = contador = None
     if login == "auto":
-        cred = credential_repository.cargar(cid, clave_maestra)
+        fid = _fideicomiso(cid)
+        cred = credential_repository.cargar_contribuyente(fid.id, fid.ruc, clave_maestra)
     if con_contador:
-        base = cred or credential_repository.cargar(cid, clave_maestra)
-        if not base.contador_id:
-            raise ConfigError(f"El contribuyente {cid} no tiene contador_id asignado")
-        contador = credential_repository.cargar(base.contador_id, clave_maestra)
-        if contador.tipo != "contador":
-            raise ConfigError(f"La fila {base.contador_id} no es de tipo 'contador'")
+        contador = credential_repository.cargar_contador(clave_maestra)
+    return cred, contador
+
+
+def _pedir(id_: str, tipo: str) -> Credencial:
+    """Pide RUC y clave por consola. La clave no se muestra ni se guarda en ningun archivo."""
+    ruc = input(f"RUC del {tipo}: ").strip()
+    clave = getpass.getpass(f"Clave del {tipo} (no se muestra): ")
+    if not ruc or not clave:
+        raise ConfigError(f"Faltan datos del {tipo}")
+    if tipo == "contador" and not re.fullmatch(r"\d{13}", ruc):
+        raise ConfigError("El RUC del contador debe tener 13 digitos")
+    return Credencial(id=id_, tipo=tipo, ruc=ruc, clave=clave)
+
+
+def _credenciales_por_consola(cid: str, login: str, con_contador: bool):
+    """Solo desarrollo, mientras no haya acceso al Excel cifrado. Pide unicamente lo que el flujo va a usar."""
+    log.warning("Credenciales por consola: uso solo para desarrollo")
+    cred = _pedir(cid, "contribuyente") if login == "auto" else None
+    contador = _pedir("contador", "contador") if con_contador else None
     return cred, contador
 
 
@@ -74,15 +108,71 @@ def _flujo(ctx, page, cid: str, periodo: tuple[int, int], hasta: str, cred, cont
     capturar(page, cid, periodo, "06_contador_listo")
 
 
+def _ejecutar_lote(args, periodo: tuple[int, int]) -> int:
+    """Procesa todos los fideicomisos marcados con SI que pasan las validaciones y tienen credencial."""
+    r = leer_control(ruta_control())
+    clave = getpass.getpass("Contrasena del archivo de credenciales: ")
+    listos, extra = cruzar_credenciales(r.pendientes, clave)
+    marcados = len(r.pendientes) + len(r.excluidos)
+    print(f"\nPeriodo: {nombre_mes(periodo[1])} {periodo[0]} | marcados SI: {marcados} | "
+          f"listos: {len(listos)} | excluidos: {len(r.excluidos) + len(extra)}")
+    for resp, n in sorted(Counter(f.responsable for f in listos).items()):
+        print(f"  {n:4d}  {resp}")
+    if not listos:
+        print("No hay fideicomisos para procesar.")
+        return 0
+    if input(f"Confirma que los {len(listos)} fideicomisos NO tuvieron movimiento? Escriba SI: ").strip() != "SI":
+        raise ZeroError("Sin validacion previa del lote")
+    log.info("validacion_previa_lote n=%d periodo=%s-%02d por=%s", len(listos), periodo[0], periodo[1], getpass.getuser())
+
+    contador = credential_repository.cargar_contador(clave) if args.hasta == "contador" else None
+    estado_ok = Estado.SIMULADO if args.hasta == "contador" else Estado.PARCIAL
+    with Repositorio(settings.DATA_DIR / "execution_history.db") as repo:
+        ejec = repo.iniciar_ejecucion(settings.VERSION, settings.DRY_RUN, args.hasta,
+                                      f"{periodo[0]}-{periodo[1]:02d}", getpass.getuser())
+        with open_context() as ctx:
+            page = ctx.pages[0] if ctx.pages else ctx.new_page()
+
+            def ejecutar(fid):
+                cred = credential_repository.cargar_contribuyente(fid.id, fid.ruc, clave)
+                try:
+                    _flujo(ctx, page, fid.id, periodo, args.hasta, cred, contador)
+                except Exception:
+                    try:
+                        capturar(page, fid.id, periodo, "error")
+                    except Exception:
+                        log.warning("No se pudo capturar la pantalla de error")
+                    raise
+
+            res = procesar_lote(listos, periodo, repo, ejecutar, ejec, estado_ok=estado_ok, max_n=args.max,
+                                pausa_s=args.pausa, incluir_revision=args.incluir_revision)
+        repo.cerrar_ejecucion(ejec, res.resumen())
+    print("\n" + res.resumen())
+    return 3 if res.detenido else 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="zero")
-    ap.add_argument("--contribuyente", required=True, help="id interno (ni RUC ni nombre)")
+    ap.add_argument("--contribuyente", help="ID del Control (un solo fideicomiso)")
+    ap.add_argument("--lote", action="store_true", help="procesa todos los fideicomisos marcados con SI")
+    ap.add_argument("--max", type=int, help="maximo de fideicomisos en esta ejecucion (lotes pequenos)")
+    ap.add_argument("--pausa", type=float, default=float(os.getenv("PAUSA_ENTRE_S", "30")),
+                    help="segundos de espera entre fideicomisos (se le suma una variacion al azar)")
+    ap.add_argument("--incluir-revision", action="store_true", help="reintenta tambien los de revision manual")
     ap.add_argument("--hasta", choices=("periodo", "siguiente", "valores", "firma", "contador"), default="periodo")
+    ap.add_argument("--credenciales", choices=("excel", "consola"), default="excel",
+                    help="excel: archivo cifrado (produccion); consola: se piden por teclado (solo desarrollo)")
     ap.add_argument("--login", choices=("auto", "manual"), default="auto",
                     help="auto: credenciales del Excel cifrado (produccion); manual: solo desarrollo")
     args = ap.parse_args(argv)
-    if not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", args.contribuyente):
+    if bool(args.contribuyente) == args.lote:
+        ap.error("indique --contribuyente o --lote (uno solo)")
+    if args.contribuyente and not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", args.contribuyente):
         ap.error("--contribuyente solo admite letras, numeros, guion y guion bajo")
+    if args.lote and (args.login != "auto" or args.credenciales != "excel"):
+        ap.error("--lote requiere --login auto y --credenciales excel")
+    if args.max is not None and args.max < 1:
+        ap.error("--max debe ser 1 o mayor")
 
     configurar_logging()
     periodo = periodo_a_declarar()
@@ -90,10 +180,14 @@ def main(argv=None) -> int:
              settings.VERSION, settings.DRY_RUN, periodo[0], periodo[1], args.hasta)
     try:
         settings.validar()
+        if args.lote:
+            return _ejecutar_lote(args, periodo)
         _validacion_previa(args.contribuyente, periodo)
         con_contador = args.hasta == "contador"
         cred = contador = None
-        if args.login == "auto" or con_contador:
+        if args.credenciales == "consola":
+            cred, contador = _credenciales_por_consola(args.contribuyente, args.login, con_contador)
+        elif args.login == "auto" or con_contador:
             cred, contador = _cargar_credenciales(
                 args.contribuyente, args.login, con_contador,
                 getpass.getpass("Contrasena del archivo de credenciales: "))

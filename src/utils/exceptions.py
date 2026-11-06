@@ -17,6 +17,10 @@ class CredentialsRejected(ZeroError):
     """El portal rechazo credenciales. Sin reintento: detiene el lote."""
 
 
+class ContadorRechazado(CredentialsRejected):
+    """El portal rechazo al contador que firma. Afecta a TODOS los fideicomisos: detiene el lote."""
+
+
 class CaptchaRejected(ZeroError):
     """Captcha rechazado. Reintentable con tope."""
 

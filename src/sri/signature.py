@@ -6,7 +6,7 @@ from playwright.sync_api import TimeoutError as PWTimeout
 
 from src.security.credential_repository import Credencial
 from src.sri.declaration import _esperar_ajax
-from src.utils.exceptions import ConfigError, CredentialsRejected, LoginError, PasoNoMapeado, PortalChanged
+from src.utils.exceptions import ConfigError, ContadorRechazado, LoginError, PasoNoMapeado, PortalChanged
 from src.utils.logger import get_logger
 
 log = get_logger(__name__)
@@ -85,7 +85,7 @@ def llenar_contador(page: Page, contador: Credencial) -> None:
     mensaje = page.locator(CONTADOR_MSG_RUC)
     for _ in range(34):  # ~10 s
         if mensaje.count() and mensaje.first.is_visible() and mensaje.first.inner_text().strip():
-            raise CredentialsRejected("El portal rechazo el RUC del contador")
+            raise ContadorRechazado("El portal rechazo el RUC del contador")
         texto, valores = _estado_nombres(nombres)
         hay_inputs = nombres.locator("input").count() > 0
         if (hay_inputs and valores) or (not hay_inputs and texto and texto != antes_texto):
