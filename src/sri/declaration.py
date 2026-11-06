@@ -1,6 +1,5 @@
 """Pasos del formulario de IVA. Cada paso verifica su postcondicion antes de continuar."""
 import re
-import getpass
 
 from playwright.sync_api import Page, expect
 from playwright.sync_api import TimeoutError as PWTimeout

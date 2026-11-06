@@ -57,8 +57,10 @@ def _txt(valor) -> str:
 
 
 def leer_control(ruta: Path) -> ResultadoControl:
-    if ruta is None or not Path(ruta).is_file():
-        raise ConfigError("No se encontro el archivo de control")
+    if ruta is None:
+        raise ConfigError("Falta CONTROL_XLSX en el .env")
+    if not Path(ruta).is_file():
+        raise ConfigError(f"No se encontro el archivo de control: {Path(ruta).name} (revise la ruta en CONTROL_XLSX)")
     try:
         libro = load_workbook(ruta, read_only=True, data_only=True)
     except PermissionError:

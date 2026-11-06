@@ -1,6 +1,5 @@
 import io
 
-import msoffcrypto
 import pytest
 from msoffcrypto.format.ooxml import OOXMLFile
 from openpyxl import Workbook

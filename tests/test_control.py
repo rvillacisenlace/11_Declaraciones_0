@@ -75,3 +75,10 @@ def test_errores_de_estructura(tmp_path):
         leer_control(_libro(tmp_path, [], hoja="Otra"))
     with pytest.raises(ConfigError):
         leer_control(_libro(tmp_path, [], enc=["ID", "NOMBRE", "RUC"]))
+
+
+def test_distingue_variable_ausente_de_archivo_inexistente(tmp_path):
+    with pytest.raises(ConfigError, match="Falta CONTROL_XLSX"):
+        leer_control(None)
+    with pytest.raises(ConfigError, match="No se encontro el archivo de control: otro.xlsx"):
+        leer_control(tmp_path / "otro.xlsx")
