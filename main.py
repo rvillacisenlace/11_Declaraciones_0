@@ -1,4 +1,4 @@
-"""Zero 0.2: un fideicomiso (--contribuyente) o un lote (--lote). Nunca envia la declaracion todavia."""
+"""Zero 0.2: un fideicomiso (--contribuyente) o un lote (--lote). Solo el lote con --enviar envia declaraciones reales."""
 import argparse
 import getpass
 import os
@@ -13,7 +13,7 @@ from src.database.repository import Repositorio
 from src.security import credential_repository
 from src.security.credential_repository import Credencial
 from src.services.fideicomiso_service import cruzar_credenciales, leer_control, ruta_control
-from src.sri import authentication, declaration, navigation, signature
+from src.sri import authentication, declaration, navigation, signature, submission
 from src.sri.browser import open_context
 from src.utils.evidence import capturar
 from src.utils.exceptions import ConfigError, ZeroError
@@ -74,7 +74,8 @@ def _credenciales_por_consola(cid: str, login: str, con_contador: bool):
     return cred, contador
 
 
-def _flujo(ctx, page, cid: str, periodo: tuple[int, int], hasta: str, cred, contador) -> None:
+def _flujo(ctx, page, cid: str, periodo: tuple[int, int], hasta: str, cred, contador, *, enviar: bool = False,
+           ruc: str | None = None) -> str | None:
     if cred is None:  # solo desarrollo
         navigation.abrir_login(page)
         input("\nInicie sesion MANUALMENTE en la ventana de Edge (un solo intento) y presione ENTER... ")
@@ -106,10 +107,23 @@ def _flujo(ctx, page, cid: str, periodo: tuple[int, int], hasta: str, cred, cont
 
     signature.llenar_contador(page, contador)  # NO pulsa Aceptar: ese clic envia la declaracion
     capturar(page, cid, periodo, "06_contador_listo")
+    if not enviar:
+        return None
+
+    # ENVIO REAL: solo se llega aqui con --enviar, DRY_RUN=false y las dos confirmaciones escritas del lote.
+    destino = settings.EVIDENCE_DIR / cid / f"{periodo[0]}-{periodo[1]:02d}"
+    comprobante = submission.enviar_declaracion(page, ruc, periodo, destino, envio_autorizado=True)
+    try:
+        capturar(page, cid, periodo, "07_declarada")
+    except Exception:
+        log.warning("No se pudo capturar la pantalla final; la declaracion ya se envio")
+    return f"comprobante serie {comprobante.name.split('_')[0]}"
 
 
 def _ejecutar_lote(args, periodo: tuple[int, int]) -> int:
     """Procesa todos los fideicomisos marcados con SI que pasan las validaciones y tienen credencial."""
+    if args.enviar and settings.DRY_RUN:
+        raise ZeroError("DRY_RUN=true en el .env: el envio real esta bloqueado")
     r = leer_control(ruta_control())
     clave = getpass.getpass("Contrasena del archivo de credenciales: ")
     listos, extra = cruzar_credenciales(r.pendientes, clave)
@@ -124,9 +138,14 @@ def _ejecutar_lote(args, periodo: tuple[int, int]) -> int:
     if input(f"Confirma que los {len(listos)} fideicomisos NO tuvieron movimiento? Escriba SI: ").strip() != "SI":
         raise ZeroError("Sin validacion previa del lote")
     log.info("validacion_previa_lote n=%d periodo=%s-%02d por=%s", len(listos), periodo[0], periodo[1], getpass.getuser())
+    if args.enviar:
+        n = min(len(listos), args.max)
+        if input(f"Se ENVIARAN hasta {n} declaraciones REALES al SRI y no se pueden deshacer. Escriba ENVIAR: ").strip() != "ENVIAR":
+            raise ZeroError("Envio no confirmado")
+        log.warning("envio_real_confirmado n=%d periodo=%s-%02d por=%s", n, periodo[0], periodo[1], getpass.getuser())
 
     contador = credential_repository.cargar_contador(clave) if args.hasta == "contador" else None
-    estado_ok = Estado.SIMULADO if args.hasta == "contador" else Estado.PARCIAL
+    estado_ok = Estado.DECLARADO if args.enviar else (Estado.SIMULADO if args.hasta == "contador" else Estado.PARCIAL)
     with Repositorio(settings.DATA_DIR / "execution_history.db") as repo:
         ejec = repo.iniciar_ejecucion(settings.VERSION, settings.DRY_RUN, args.hasta,
                                       f"{periodo[0]}-{periodo[1]:02d}", getpass.getuser())
@@ -135,8 +154,9 @@ def _ejecutar_lote(args, periodo: tuple[int, int]) -> int:
 
             def ejecutar(fid):
                 cred = credential_repository.cargar_contribuyente(fid.id, fid.ruc, clave)
+                extra = {"enviar": True, "ruc": fid.ruc} if args.enviar else {}
                 try:
-                    _flujo(ctx, page, fid.id, periodo, args.hasta, cred, contador)
+                    return _flujo(ctx, page, fid.id, periodo, args.hasta, cred, contador, **extra)
                 except Exception:
                     try:
                         capturar(page, fid.id, periodo, "error")
@@ -159,6 +179,8 @@ def main(argv=None) -> int:
     ap.add_argument("--pausa", type=float, default=float(os.getenv("PAUSA_ENTRE_S", "30")),
                     help="segundos de espera entre fideicomisos (se le suma una variacion al azar)")
     ap.add_argument("--incluir-revision", action="store_true", help="reintenta tambien los de revision manual")
+    ap.add_argument("--enviar", action="store_true",
+                    help="ENVIA las declaraciones de verdad (exige --lote, --max N, --hasta contador y DRY_RUN=false)")
     ap.add_argument("--hasta", choices=("periodo", "siguiente", "valores", "firma", "contador"), default="periodo")
     ap.add_argument("--credenciales", choices=("excel", "consola"), default="excel",
                     help="excel: archivo cifrado (produccion); consola: se piden por teclado (solo desarrollo)")
@@ -173,6 +195,8 @@ def main(argv=None) -> int:
         ap.error("--lote requiere --login auto y --credenciales excel")
     if args.max is not None and args.max < 1:
         ap.error("--max debe ser 1 o mayor")
+    if args.enviar and not (args.lote and args.max and args.hasta == "contador"):
+        ap.error("--enviar requiere --lote, --max N y --hasta contador")
 
     configurar_logging()
     periodo = periodo_a_declarar()

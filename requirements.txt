@@ -3,4 +3,5 @@ python-dotenv
 tzdata
 msoffcrypto-tool
 openpyxl
+pypdf
 # desarrollo: pytest

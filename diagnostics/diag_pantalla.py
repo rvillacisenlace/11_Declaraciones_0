@@ -16,7 +16,9 @@ JS_RESUMEN = """() => {
   const fila = (e) => ({tag: e.tagName.toLowerCase(), id: e.id || null,
       cls: (e.className && e.className.toString ? e.className.toString() : '').slice(0, 80),
       texto: t(e), deshabilitado: !!e.disabled || /disabled/.test(e.className || '')});
-  const q = (s) => Array.from(document.querySelectorAll(s)).map(fila);
+  const visible = (e) => { const st = getComputedStyle(e);
+    return st.display !== 'none' && st.visibility !== 'hidden' && !!(e.offsetWidth || e.offsetHeight || e.getClientRects().length); };
+  const q = (s) => Array.from(document.querySelectorAll(s)).filter(visible).map(fila);
   return {
     titulo: document.title,
     encabezados: q('h1,h2,h3,h4'),

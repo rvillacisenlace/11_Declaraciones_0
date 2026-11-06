@@ -43,3 +43,13 @@ class PeriodoNoCoincide(ZeroError):
 
 class AlreadyDeclared(ZeroError):
     """Ya existe declaracion del periodo. No es un fallo: se registra como 'ya hecho'."""
+
+
+class ComprobanteInvalido(ZeroError):
+    """El comprobante descargado no corresponde a lo esperado (otro RUC, otro periodo, con valor a pagar...).
+    La declaracion pudo haberse enviado: exige revision manual en el SRI."""
+
+
+class EnvioIncierto(ZeroError):
+    """Se pulso Aceptar pero no se pudo confirmar el resultado: la declaracion pudo haberse enviado.
+    Nunca se reintenta; exige revision manual en el SRI."""

@@ -3,6 +3,7 @@ import re
 
 from playwright.sync_api import Page, expect
 from playwright.sync_api import TimeoutError as PWTimeout
+from playwright.sync_api import Error as PWError
 
 from src.security.credential_repository import Credencial
 from src.sri.declaration import _esperar_ajax
@@ -13,6 +14,7 @@ log = get_logger(__name__)
 
 # Los ids de la pregunta llevan indices generados (repeatCuestionario:29): se busca por texto.
 PREGUNTA_CONTADOR = "Requiere firma de contador"
+PANEL_CONTADOR = '[id="frmFlujoDeclaracion:panelContador"]'  # la pregunta tambien puede existir fuera de este panel
 CONTADOR_RUC = '[id="frmFlujoDeclaracion:txtRucContador"]'
 CONTADOR_CLAVE = '[id="frmFlujoDeclaracion:txtPassContador"]'
 CONTADOR_NOMBRES = '[id="frmFlujoDeclaracion:divApellidosNombresContador"]'
@@ -20,36 +22,52 @@ CONTADOR_MSG_RUC = '[id="frmFlujoDeclaracion:msgRucContador"]'
 BOTON_ACEPTAR = '[id="frmFlujoDeclaracion:divBotonContinuarConfirmacion"]'
 
 
+def _describir_radios(fila) -> str:
+    """Para el log cuando algo falla: solo atributos tecnicos de los radios, nunca datos del contribuyente."""
+    try:
+        radios = fila.locator('input[type="radio"]')
+        return "; ".join(f"value={radios.nth(k).get_attribute('value')!r} marcado={radios.nth(k).is_checked()}"
+                         for k in range(radios.count())) or "(sin radios)"
+    except PWError:
+        return "(no se pudo leer)"
+
+
 def _marcar_si(page: Page) -> None:
-    # Fila = ancestro mas cercano de la pregunta que contiene los radios.
-    fila = page.locator(
-        f"xpath=//span[contains(normalize-space(.), '{PREGUNTA_CONTADOR}')]/ancestor::div[.//input[@type='radio']][1]"
-    )
+    # Fila = ancestro mas cercano de la pregunta que contiene los radios. Solo se busca dentro del panel del
+    # contador y entre lo visible: la misma pregunta puede aparecer repetida en otras partes del DOM.
+    fila = (page.locator(PANEL_CONTADOR)
+            .locator(f"xpath=.//span[contains(normalize-space(.), '{PREGUNTA_CONTADOR}')]"
+                     "/ancestor::div[.//input[@type='radio']][1]")
+            .filter(visible=True))
     try:
         fila.first.wait_for(state="visible", timeout=15_000)
     except PWTimeout:
         raise PasoNoMapeado("No aparecio la pregunta de firma de contador") from None
     if fila.count() != 1:
+        log.warning("Filas visibles de la pregunta de firma de contador: %d", fila.count())
         raise PortalChanged(f"Se esperaba 1 pregunta de firma de contador y hay {fila.count()}")
     si = fila.locator('input[type="radio"][value="SI"]')
     no = fila.locator('input[type="radio"][value="NO"]')
     if si.count() != 1 or no.count() != 1:
+        log.warning("Radios de la pregunta de firma de contador: %s", _describir_radios(fila))
         raise PortalChanged("La pregunta de firma de contador no tiene exactamente las opciones SI y NO")
 
     log.info("Estado inicial de la pregunta de firma de contador: %s",
              "SI" if si.is_checked() else ("NO" if no.is_checked() else "ninguno"))
     if not si.is_checked():
-        etiqueta = si.locator("xpath=ancestor::td[1]//label")
-        if etiqueta.count() == 1:
-            etiqueta.click()
-        else:  # sin etiqueta: se pulsa la caja visual del radio
-            si.locator("xpath=ancestor::div[contains(@class,'ui-radiobutton')][1]"
-                       "//div[contains(@class,'ui-radiobutton-box')]").click()
+        # Primero la caja visual del radio: es lo que pulsa una persona. La etiqueta queda como alternativa.
+        caja = si.locator("xpath=ancestor::div[contains(@class,'ui-radiobutton')][1]"
+                          "//div[contains(@class,'ui-radiobutton-box')]")
+        if caja.count() == 1:
+            caja.click()
+        else:
+            si.locator("xpath=ancestor::td[1]//label").click()
         _esperar_ajax(page, 10_000)
     try:
         expect(si).to_be_checked(timeout=5_000)
         expect(no).not_to_be_checked(timeout=2_000)
     except AssertionError:
+        log.warning("Radios tras pulsar SI: %s", _describir_radios(fila))
         raise PortalChanged("La respuesta SI de firma de contador no quedo marcada") from None
 
 
@@ -65,6 +83,8 @@ def llenar_contador(page: Page, contador: Credencial) -> None:
     """Deja listos los datos del contador. NO pulsa Aceptar."""
     if not re.fullmatch(r"\d{13}", contador.ruc):
         raise ConfigError("El RUC del contador debe tener 13 digitos")
+    if any(ord(c) < 32 for c in contador.clave):
+        raise ConfigError("La clave del contador contiene caracteres de control (un salto de linea enviaria el formulario)")
     _marcar_si(page)
 
     ruc = page.locator(CONTADOR_RUC)

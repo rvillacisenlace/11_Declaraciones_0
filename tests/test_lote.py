@@ -5,9 +5,9 @@ import pytest
 from src.core.process_queue import procesar_lote
 from src.database.models import Estado
 from src.database.repository import Repositorio
-from src.utils.exceptions import (AlreadyDeclared, CaptchaRejected, ConfigError, ContadorRechazado,
-                                  CredentialsRejected, ObligacionNoDisponible, PasoNoMapeado, PeriodoNoCoincide,
-                                  PortalChanged)
+from src.utils.exceptions import (AlreadyDeclared, CaptchaRejected, ComprobanteInvalido, ConfigError,
+                                  ContadorRechazado, CredentialsRejected, ObligacionNoDisponible, PasoNoMapeado,
+                                  PeriodoNoCoincide, PortalChanged)
 
 P = (2026, 10)
 TXT = "2026-10"
@@ -178,3 +178,9 @@ def test_cuando_ya_se_simularon_todos_vuelve_a_empezar(repo):
         repo.marcar(i, TXT, Estado.SIMULADO)
     _, vistos = correr(repo, ["1", "2"])
     assert vistos == ["1", "2"]
+
+
+def test_comprobante_invalido_detiene_el_lote_y_deja_revision_manual(repo):
+    res, vistos = correr(repo, ["1", "2", "3"], {"1": ComprobanteInvalido("x")})
+    assert vistos == ["1"] and "comprobante" in res.detenido
+    assert repo.estado("1", TXT) == Estado.REVISION_MANUAL

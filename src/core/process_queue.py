@@ -6,8 +6,9 @@ from collections import Counter
 from dataclasses import dataclass, field
 
 from src.database.models import FINALES, Estado
-from src.utils.exceptions import (AlreadyDeclared, CaptchaRejected, ConfigError, ContadorRechazado,
-                                  ObligacionNoDisponible, PasoNoMapeado, PeriodoNoCoincide, PortalChanged)
+from src.utils.exceptions import (AlreadyDeclared, CaptchaRejected, ComprobanteInvalido, ConfigError,
+                                  ContadorRechazado, EnvioIncierto, ObligacionNoDisponible, PasoNoMapeado,
+                                  PeriodoNoCoincide, PortalChanged)
 from src.utils.logger import get_logger
 
 log = get_logger(__name__)
@@ -40,6 +41,8 @@ def _clasificar(e: Exception):
         return Estado.OBLIGACION_NO_DISPONIBLE, "reset", None
     if isinstance(e, ContadorRechazado):
         return Estado.ERROR, "stop", "el portal rechazo al contador que firma: afecta a todos los fideicomisos"
+    if isinstance(e, (ComprobanteInvalido, EnvioIncierto)):
+        return Estado.REVISION_MANUAL, "stop", "no se pudo confirmar el envio o su comprobante: la declaracion pudo enviarse, verifique en el SRI"
     if isinstance(e, (PortalChanged, PasoNoMapeado)):
         return Estado.REVISION_MANUAL, "stop", f"el portal no respondio como se esperaba ({type(e).__name__})"
     if isinstance(e, (PeriodoNoCoincide, CaptchaRejected)):
@@ -95,7 +98,7 @@ def procesar_lote(fideicomisos, periodo: tuple, repo, ejecutar, ejecucion_id: in
                 res.detenido = f"{fallos} fallos seguidos: se detiene el lote"
                 break
         else:
-            repo.marcar(f.id, txt, estado_ok, "", ejecucion_id)
+            repo.marcar(f.id, txt, estado_ok, detalle_ok or "", ejecucion_id)
             conteo[estado_ok.value] += 1
             log.info("Fideicomiso %s -> %s", f.id, estado_ok.value)
             fallos = 0
