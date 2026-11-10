@@ -1,4 +1,5 @@
 """Zero 0.2: un fideicomiso (--contribuyente) o un lote (--lote). Solo el lote con --enviar envia declaraciones reales."""
+"""Zero 0.2: un fideicomiso (--contribuyente) o un lote (--lote). Solo el lote con --enviar envia declaraciones reales."""
 import argparse
 import getpass
 import os
@@ -18,6 +19,7 @@ from src.sri.browser import open_context
 from src.utils.evidence import capturar
 from src.utils.exceptions import ConfigError, ZeroError
 from src.utils.logger import configurar_logging, get_logger
+from src.utils.rutas import carpeta_declaracion
 from src.utils.validators import nombre_mes, periodo_a_declarar
 
 log = get_logger("zero")
@@ -111,7 +113,7 @@ def _flujo(ctx, page, cid: str, periodo: tuple[int, int], hasta: str, cred, cont
         return None
 
     # ENVIO REAL: solo se llega aqui con --enviar, DRY_RUN=false y las dos confirmaciones escritas del lote.
-    destino = settings.EVIDENCE_DIR / cid / f"{periodo[0]}-{periodo[1]:02d}"
+    destino = carpeta_declaracion(ruc, "2011")
     comprobante = submission.enviar_declaracion(page, ruc, periodo, destino, envio_autorizado=True)
     try:
         capturar(page, cid, periodo, "07_declarada")

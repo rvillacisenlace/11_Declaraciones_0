@@ -12,8 +12,11 @@ load_dotenv(HOME / ".env")
 AUTH_DIR = HOME / ".auth"
 LOGS_DIR = HOME / "logs"
 DATA_DIR = HOME / "data"
-EVIDENCE_DIR = HOME / "evidence"
-
+# Carpeta visible para el usuario (p. ej. D:/Documentos/Zero): Declaraciones/<RUC>/<impuesto>/ y Evidencias/.
+# Sin ZERO_DOCS todo queda dentro de HOME, como antes.
+_DOCS = os.getenv("ZERO_DOCS")
+DECLARACIONES_DIR = Path(_DOCS) / "Declaraciones" if _DOCS else HOME / "declaraciones"
+EVIDENCE_DIR = Path(_DOCS) / "Evidencias" if _DOCS else HOME / "evidence"
 
 def _bool(nombre: str, defecto: bool) -> bool:
     valor = os.getenv(nombre)
@@ -28,7 +31,7 @@ FORM_IVA_URL = os.getenv("FORM_IVA_URL", "")
 CREDENCIALES_XLSX = Path(os.getenv("CREDENCIALES_XLSX", "")) if os.getenv("CREDENCIALES_XLSX") else None
 
 def ensure_dirs() -> None:
-    for d in (AUTH_DIR, LOGS_DIR, DATA_DIR, EVIDENCE_DIR):
+    for d in (AUTH_DIR, LOGS_DIR, DATA_DIR, EVIDENCE_DIR, DECLARACIONES_DIR):
         d.mkdir(parents=True, exist_ok=True)
 
 
