@@ -13,7 +13,7 @@ from pypdf.errors import PyPdfError
 
 from src.utils.exceptions import ComprobanteInvalido
 from src.utils.logger import get_logger
-from src.utils.validators import hoy_ecuador, nombre_mes
+from src.utils.validators import enmascarar_ruc, hoy_ecuador, nombre_mes
 
 log = get_logger(__name__)
 
@@ -103,5 +103,5 @@ def archivar(descargado: Path, destino: Path, ruc_esperado: str, periodo: tuple[
     if final.exists():
         raise ComprobanteInvalido("Ya existe un comprobante con ese nombre")
     shutil.move(str(descargado), str(final))
-    log.info("Comprobante archivado: serie %s -> %s", c.serie, final.name)
+    log.info("Comprobante archivado: serie %s (RUC %s)", c.serie, enmascarar_ruc(c.ruc))  # el nombre del archivo lleva el RUC completo
     return final

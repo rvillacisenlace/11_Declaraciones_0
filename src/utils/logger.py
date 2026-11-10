@@ -10,6 +10,7 @@ _PATRONES = (
     (re.compile(r"(?i)\b(password|passwd|clave|secret|api[_-]?key|token|key)\b(\s*[=:]\s*)\S+"), r"\1\2***"),
     (re.compile(r"(https?://[^\s?#;]+)[;?#]\S*"), r"\1"),
     (re.compile(r"[A-Za-z0-9_\-\.]{80,}"), "***TOKEN***"),
+        (re.compile(r"(?<!\d)(\d{4})\d{6}(\d{3})(?!\d)"), r"\1***\2"),  # RUC (13 digitos) suelto o dentro de un nombre de archivo
 )
 
 

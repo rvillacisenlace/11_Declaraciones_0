@@ -129,3 +129,12 @@ def test_archivar_no_mueve_nada_si_no_pasa_la_verificacion(tmp_path):
     with pytest.raises(ComprobanteInvalido):
         v.archivar(origen, tmp_path / "evidencia", "1790000000002", PERIODO, hoy=HOY)
     assert origen.exists() and not (tmp_path / "evidencia").exists()
+
+
+def test_el_mensaje_de_archivado_no_incluye_el_ruc(tmp_path, caplog):
+    import logging
+    pdf = tmp_path / "d.pdf"
+    pdf.write_bytes(_pdf_minimo(LINEAS))
+    with caplog.at_level(logging.INFO):
+        v.archivar(pdf, tmp_path / "ev", RUC, PERIODO, ahora=datetime(2026, 11, 6, 14, 30, 5), hoy=HOY)
+    assert "Comprobante archivado" in caplog.text and RUC not in caplog.text
