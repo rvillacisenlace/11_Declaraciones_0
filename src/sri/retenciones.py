@@ -1,18 +1,19 @@
-"""Retenciones en la fuente (1031): recorrido de PRUEBA, solo hasta antes de 'Aceptar'.
-Este modulo NO puede enviar: no usa el boton Aceptar. Existe para descubrir, sin riesgo, como se comporta ese
-formulario (texto de la pregunta, respuesta por defecto, recargos). El envio de retenciones se habilitara cuando
-exista un comprobante real con el que verificarlo. Reutiliza los pasos genericos del IVA (obligacion, periodo)."""
+"""Retenciones en la fuente (1031). Recorre el formulario hasta los datos del contador y se detiene ANTES de
+'Aceptar'. Solo envia si el lote se lo ordena (enviar=True: exige --enviar, DRY_RUN=false y dos confirmaciones
+escritas), y lo hace unicamente a traves de submission.enviar_declaracion: este modulo nunca toca Aceptar.
+Reutiliza los pasos genericos del IVA (obligacion, periodo)."""
 import re
 
 from playwright.sync_api import Page, expect
 from playwright.sync_api import TimeoutError as PWTimeout
 
 from config import settings
-from src.sri import authentication, declaration, navigation, signature
+from src.sri import authentication, declaration, navigation, signature, submission
 from src.sri import selectors as sel
 from src.utils.evidence import capturar
 from src.utils.exceptions import LoginError, PasoNoMapeado, PeriodoNoCoincide, PortalChanged, RecargosInesperados
 from src.utils.logger import get_logger
+from src.utils.rutas import carpeta_declaracion
 from src.utils.validators import url_corta
 
 log = get_logger(__name__)
@@ -133,8 +134,9 @@ def verificar_sin_recargos(page: Page) -> None:
             raise RecargosInesperados(f"El portal calculo {nombre} ({valor}): la declaracion no seria en cero")
 
 
-def recorrer(ctx, page: Page, cid: str, periodo: tuple[int, int], hasta: str, cred, contador) -> None:
-    """Recorrido de prueba de retenciones. NUNCA pulsa Aceptar."""
+def recorrer(ctx, page: Page, cid: str, periodo: tuple[int, int], hasta: str, cred, contador, *,
+             enviar: bool = False, ruc: str | None = None) -> str | None:
+    """Recorrido de retenciones. Nunca pulsa Aceptar por si mismo; el envio, si se ordena, lo hace submission."""
     if cred is None:  # solo desarrollo
         navigation.abrir_login(page)
         input("\nInicie sesion MANUALMENTE en la ventana de Edge (un solo intento) y presione ENTER... ")
@@ -167,3 +169,14 @@ def recorrer(ctx, page: Page, cid: str, periodo: tuple[int, int], hasta: str, cr
     signature.llenar_contador(page, contador)
     verificar_sin_recargos(page)
     capturar(page, cid, periodo, "ret_06_contador_listo")
+    if not enviar:
+        return None
+
+    # ENVIO REAL de retenciones: solo se llega aqui con --enviar, DRY_RUN=false y las confirmaciones escritas del lote.
+    comprobante = submission.enviar_declaracion(page, ruc, periodo, carpeta_declaracion(ruc, CODIGO),
+                                                envio_autorizado=True, impuesto=CODIGO)
+    try:
+        capturar(page, cid, periodo, "ret_07_declarada")
+    except Exception:
+        log.warning("No se pudo capturar la pantalla final; la declaracion ya se envio")
+    return f"comprobante serie {comprobante.name.split('_')[0]}"

@@ -44,13 +44,9 @@ def test_cualquier_recargo_detiene_antes_de_enviar(interes, multa, nombre):
     with pytest.raises(RecargosInesperados, match=nombre):
         retenciones.verificar_sin_recargos(_Pagina(interes, multa))
 
-
-def test_retenciones_solo_con_un_fideicomiso_y_nunca_envia():
-    for argv in (["--lote", "--impuesto", "1031", "--enviar", "--max", "1", "--hasta", "contador"],
-                 ["--contribuyente", "5", "--impuesto", "1031", "--enviar"]):
-        with pytest.raises(SystemExit):
-            main.main(argv)
-
+def test_el_envio_solo_existe_en_el_lote_tambien_para_retenciones():
+    with pytest.raises(SystemExit):
+        main.main(["--contribuyente", "5", "--impuesto", "1031", "--enviar", "--max", "1", "--hasta", "contador"])
 
 def test_con_impuesto_1031_se_usa_el_recorrido_de_retenciones_y_no_el_del_iva(entorno, monkeypatch):
     llamadas = []

@@ -35,8 +35,8 @@ def _norm(texto: str) -> str:
 
 
 def parsear(texto: str) -> Comprobante:
-    def buscar(patron: str, campo: str):
-        m = re.search(patron, texto, re.I)
+    def buscar(patron: str, campo: str, flags: int = 0):
+        m = re.search(patron, texto, re.I | flags)
         if not m:
             raise ComprobanteInvalido(f"No se pudo leer '{campo}' del comprobante")
         return m
@@ -45,7 +45,7 @@ def parsear(texto: str) -> Comprobante:
     fecha = buscar(r"(\d{2}/\d{2}/\d{4})\s+a\s+las\s+(\d{2}:\d{2}:\d{2})", "fecha y hora de declaracion")
     ruc = buscar(r"\b(\d{13})\b", "identificacion").group(1)
     periodo = buscar(r"Per[ií]odo fiscal:\s*([^\W\d_]+\s+\d{4})", "periodo fiscal").group(1)
-    impuesto = buscar(r"Impuesto:\s*([^\n]+)", "impuesto").group(1)
+    impuesto = buscar(r"Impuesto:\s*([^\n]+(?:\n(?!Tipo de|Declaraci[oó]n sin)[^\n:]+)?)", "impuesto").group(1)  # a veces ocupa 2 lineas
     tipo = buscar(r"Tipo de declaraci[oó]n:\s*([^\n]+)", "tipo de declaracion").group(1)
     return Comprobante(
         serie=serie, ruc=ruc,
@@ -68,15 +68,16 @@ def leer_pdf(ruta: Path) -> Comprobante:
     return parsear(texto)
 
 
-def verificar(c: Comprobante, ruc_esperado: str, periodo: tuple[int, int], hoy: date | None = None) -> None:
+def verificar(c: Comprobante, ruc_esperado: str, periodo: tuple[int, int], hoy: date | None = None,
+              impuesto: str = "2011") -> None:
     """Lanza ComprobanteInvalido si algo no coincide. El mensaje nunca incluye el RUC."""
     problemas = []
     if c.ruc != ruc_esperado:
         problemas.append("el RUC del comprobante no es el esperado")
     if c.periodo != f"{nombre_mes(periodo[1]).upper()} {periodo[0]}":
         problemas.append(f"el periodo es {c.periodo} y se esperaba {nombre_mes(periodo[1]).upper()} {periodo[0]}")
-    if not c.impuesto.startswith("2011"):
-        problemas.append(f"el impuesto es '{c.impuesto}' y se esperaba el 2011")
+    if not c.impuesto.startswith(impuesto):
+        problemas.append(f"el impuesto es '{c.impuesto}' y se esperaba el {impuesto}")
     if c.tipo != "ORIGINAL":
         problemas.append(f"el tipo de declaracion es {c.tipo} y se esperaba ORIGINAL")
     if not c.sin_valor_a_pagar:
@@ -92,10 +93,10 @@ def nombre_archivo(c: Comprobante, descarga: datetime) -> str:
 
 
 def archivar(descargado: Path, destino: Path, ruc_esperado: str, periodo: tuple[int, int],
-             ahora: datetime | None = None, hoy: date | None = None) -> Path:
+             ahora: datetime | None = None, hoy: date | None = None, impuesto: str = "2011") -> Path:
     """Verifica el PDF y lo mueve a 'destino' con su nombre definitivo. Si no pasa la verificacion no se mueve."""
     c = leer_pdf(descargado)
-    verificar(c, ruc_esperado, periodo, hoy)
+    verificar(c, ruc_esperado, periodo, hoy, impuesto)
     destino = Path(destino)
     destino.mkdir(parents=True, exist_ok=True)
     final = destino / nombre_archivo(c, ahora or datetime.now())

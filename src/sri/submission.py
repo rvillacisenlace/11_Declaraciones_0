@@ -24,7 +24,7 @@ ESPERA_DESCARGA_MS = 30_000
 
 
 def enviar_declaracion(page: Page, ruc: str, periodo: tuple[int, int], destino: Path, *, envio_autorizado: bool,
-                       hoy: date | None = None, ahora: datetime | None = None) -> Path:
+                       hoy: date | None = None, ahora: datetime | None = None, impuesto: str = "2011") -> Path:
     """Pulsa Aceptar UNA vez, confirma el exito, descarga el comprobante y lo archiva. Devuelve su ruta."""
     if envio_autorizado is not True:
         raise ConfigError("Envio no autorizado: no se pulsa Aceptar")
@@ -45,7 +45,7 @@ def enviar_declaracion(page: Page, ruc: str, periodo: tuple[int, int], destino: 
         except PWTimeout:
             raise EnvioIncierto("El portal no confirmo el envio: la declaracion pudo haberse enviado") from None
         log.info("El portal confirmo: declaracion procesada")
-        return _descargar_y_archivar(page, ruc, periodo, Path(destino), hoy, ahora)
+        return _descargar_y_archivar(page, ruc, periodo, Path(destino), hoy, ahora, impuesto)
     except (EnvioIncierto, ComprobanteInvalido):
         raise
     except Exception as e:
@@ -53,7 +53,7 @@ def enviar_declaracion(page: Page, ruc: str, periodo: tuple[int, int], destino: 
 
 
 def _descargar_y_archivar(page: Page, ruc: str, periodo: tuple[int, int], destino: Path,
-                          hoy: date | None, ahora: datetime | None) -> Path:
+                          hoy: date | None, ahora: datetime | None, impuesto: str) -> Path:
     destino.mkdir(parents=True, exist_ok=True)
     temporal = destino / f".descarga_{datetime.now():%Y%m%d%H%M%S%f}.tmp"
     try:
@@ -63,7 +63,7 @@ def _descargar_y_archivar(page: Page, ruc: str, periodo: tuple[int, int], destin
     except PWTimeout:
         raise ComprobanteInvalido("El portal confirmo el envio pero no se pudo descargar el comprobante") from None
     try:
-        return verification.archivar(temporal, destino, ruc, periodo, ahora=ahora, hoy=hoy)
+        return verification.archivar(temporal, destino, ruc, periodo, ahora=ahora, hoy=hoy, impuesto=impuesto)
     except ComprobanteInvalido:
         # Se conserva el archivo para revision manual, con un nombre que no se confunda con un comprobante valido.
         temporal.replace(destino / f"RECHAZADO_{datetime.now():%Y%m%d%H%M%S}.pdf")

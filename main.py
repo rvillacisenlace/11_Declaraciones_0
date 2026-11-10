@@ -142,7 +142,8 @@ def _ejecutar_lote(args, periodo: tuple[int, int]) -> int:
     log.info("validacion_previa_lote n=%d periodo=%s-%02d por=%s", len(listos), periodo[0], periodo[1], getpass.getuser())
     if args.enviar:
         n = min(len(listos), args.max)
-        if input(f"Se ENVIARAN hasta {n} declaraciones REALES al SRI y no se pueden deshacer. Escriba ENVIAR: ").strip() != "ENVIAR":
+        nombre = "retenciones" if args.impuesto == "1031" else "IVA"
+        if input(f"Se ENVIARAN hasta {n} declaraciones REALES de {nombre} al SRI y no se pueden deshacer. Escriba ENVIAR: ").strip() != "ENVIAR":
             raise ZeroError("Envio no confirmado")
         log.warning("envio_real_confirmado n=%d periodo=%s-%02d por=%s", n, periodo[0], periodo[1], getpass.getuser())
 
@@ -159,7 +160,7 @@ def _ejecutar_lote(args, periodo: tuple[int, int]) -> int:
                 extra = {"enviar": True, "ruc": fid.ruc} if args.enviar else {}
                 try:
                     if args.impuesto == "1031":
-                        return retenciones.recorrer(ctx, page, fid.id, periodo, args.hasta, cred, contador)
+                        return retenciones.recorrer(ctx, page, fid.id, periodo, args.hasta, cred, contador, **extra)
                     return _flujo(ctx, page, fid.id, periodo, args.hasta, cred, contador, **extra)
                 except Exception:
                     try:
@@ -185,7 +186,7 @@ def main(argv=None) -> int:
     ap.add_argument("--enviar", action="store_true",
                     help="ENVIA las declaraciones de verdad (exige --lote, --max N, --hasta contador y DRY_RUN=false)")
     ap.add_argument("--impuesto", choices=("2011", "1031"), default="2011",
-                    help="solo con --contribuyente; 1031 (retenciones) es de PRUEBA: nunca envia")
+                    help="2011 = IVA (por defecto); 1031 = retenciones")
     ap.add_argument("--hasta", choices=("periodo", "siguiente", "valores", "firma", "contador"), default="periodo")
     ap.add_argument("--credenciales", choices=("excel", "consola"), default="excel",
                     help="excel: archivo cifrado (produccion); consola: se piden por teclado (solo desarrollo)")
@@ -200,8 +201,7 @@ def main(argv=None) -> int:
         ap.error("--lote requiere --login auto y --credenciales excel")
     if args.max is not None and args.max < 1:
         ap.error("--max debe ser 1 o mayor")
-    if args.impuesto != "2011" and args.enviar:
-        ap.error("--impuesto 1031 nunca envia: el envio de retenciones aun no existe")
+
     if args.enviar and not (args.lote and args.max and args.hasta == "contador"):
         ap.error("--enviar requiere --lote, --max N y --hasta contador")
 
