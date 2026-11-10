@@ -53,3 +53,7 @@ class ComprobanteInvalido(ZeroError):
 class EnvioIncierto(ZeroError):
     """Se pulso Aceptar pero no se pudo confirmar el resultado: la declaracion pudo haberse enviado.
     Nunca se reintenta; exige revision manual en el SRI."""
+
+
+class RecargosInesperados(ZeroError):
+    """El portal calculo interes o multa: la declaracion no seria en cero. No se envia."""

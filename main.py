@@ -14,7 +14,7 @@ from src.database.repository import Repositorio
 from src.security import credential_repository
 from src.security.credential_repository import Credencial
 from src.services.fideicomiso_service import cruzar_credenciales, leer_control, ruta_control
-from src.sri import authentication, declaration, navigation, signature, submission
+from src.sri import authentication, declaration, navigation, retenciones, signature, submission
 from src.sri.browser import open_context
 from src.utils.evidence import capturar
 from src.utils.exceptions import ConfigError, ZeroError
@@ -183,6 +183,8 @@ def main(argv=None) -> int:
     ap.add_argument("--incluir-revision", action="store_true", help="reintenta tambien los de revision manual")
     ap.add_argument("--enviar", action="store_true",
                     help="ENVIA las declaraciones de verdad (exige --lote, --max N, --hasta contador y DRY_RUN=false)")
+    ap.add_argument("--impuesto", choices=("2011", "1031"), default="2011",
+                    help="solo con --contribuyente; 1031 (retenciones) es de PRUEBA: nunca envia")
     ap.add_argument("--hasta", choices=("periodo", "siguiente", "valores", "firma", "contador"), default="periodo")
     ap.add_argument("--credenciales", choices=("excel", "consola"), default="excel",
                     help="excel: archivo cifrado (produccion); consola: se piden por teclado (solo desarrollo)")
@@ -197,6 +199,8 @@ def main(argv=None) -> int:
         ap.error("--lote requiere --login auto y --credenciales excel")
     if args.max is not None and args.max < 1:
         ap.error("--max debe ser 1 o mayor")
+    if args.impuesto != "2011" and (args.lote or args.enviar):
+        ap.error("--impuesto 1031 solo funciona con --contribuyente y nunca envia")
     if args.enviar and not (args.lote and args.max and args.hasta == "contador"):
         ap.error("--enviar requiere --lote, --max N y --hasta contador")
 
@@ -220,7 +224,8 @@ def main(argv=None) -> int:
         with open_context() as ctx:
             page = ctx.pages[0] if ctx.pages else ctx.new_page()
             try:
-                _flujo(ctx, page, args.contribuyente, periodo, args.hasta, cred, contador)
+                recorrido = retenciones.recorrer if args.impuesto == "1031" else _flujo
+                recorrido(ctx, page, args.contribuyente, periodo, args.hasta, cred, contador)
             except Exception:
                 capturar(page, args.contribuyente, periodo, "error")
                 raise
