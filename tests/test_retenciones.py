@@ -46,8 +46,8 @@ def test_cualquier_recargo_detiene_antes_de_enviar(interes, multa, nombre):
 
 
 def test_retenciones_solo_con_un_fideicomiso_y_nunca_envia():
-    for argv in (["--lote", "--impuesto", "1031"],
-                 ["--lote", "--impuesto", "1031", "--enviar", "--max", "1", "--hasta", "contador"]):
+    for argv in (["--lote", "--impuesto", "1031", "--enviar", "--max", "1", "--hasta", "contador"],
+                 ["--contribuyente", "5", "--impuesto", "1031", "--enviar"]):
         with pytest.raises(SystemExit):
             main.main(argv)
 

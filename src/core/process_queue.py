@@ -51,10 +51,10 @@ def _clasificar(e: Exception):
         return Estado.ERROR, "neutro", None
     return Estado.ERROR, "fallo", None  # credenciales rechazadas, login, imprevistos
 
-
 def procesar_lote(fideicomisos, periodo: tuple, repo, ejecutar, ejecucion_id: int, *, estado_ok: Estado,
                   max_n: int | None = None, pausa_s: float = 0.0, max_fallos_seguidos: int = 3,
-                  incluir_revision: bool = False, dormir=time.sleep, azar=random.uniform) -> ResultadoLote:
+                  incluir_revision: bool = False, impuesto: str = "2011", dormir=time.sleep,
+                  azar=random.uniform) -> ResultadoLote:
     txt = f"{periodo[0]}-{periodo[1]:02d}"
     res, conteo = ResultadoLote(), Counter()
     recuperadas = repo.recuperar_interrumpidas(txt, ejecucion_id)
@@ -64,7 +64,7 @@ def procesar_lote(fideicomisos, periodo: tuple, repo, ejecutar, ejecucion_id: in
     omitir = set(FINALES) | (set() if incluir_revision else {Estado.REVISION_MANUAL})
     cola = []
     for f in fideicomisos:
-        estado = repo.estado(f.id, txt)
+        estado = repo.estado(f.id, txt, impuesto)
         if estado in omitir:
             res.omitidos += 1
         else:
@@ -77,17 +77,17 @@ def procesar_lote(fideicomisos, periodo: tuple, repo, ejecutar, ejecucion_id: in
     for k, f in enumerate(cola):
         if k and pausa_s:
             dormir(pausa_s + azar(0, pausa_s / 2))  # espaciado con variacion: no procesar en rafaga
-        repo.marcar(f.id, txt, Estado.EN_PROCESO, ejecucion_id=ejecucion_id, intento=True)
+        repo.marcar(f.id, txt, Estado.EN_PROCESO, ejecucion_id=ejecucion_id, intento=True, impuesto=impuesto)
         res.procesados += 1
         try:
             detalle_ok = ejecutar(f)
         except KeyboardInterrupt:
             repo.marcar(f.id, txt, Estado.REVISION_MANUAL, "interrumpido por el operador: verificar en el SRI",
-                        ejecucion_id)
+                        ejecucion_id, impuesto=impuesto)
             raise
         except Exception as e:
             estado, efecto, motivo = _clasificar(e)
-            repo.marcar(f.id, txt, estado, f"{type(e).__name__}: {e}", ejecucion_id)
+            repo.marcar(f.id, txt, estado, f"{type(e).__name__}: {e}", ejecucion_id, impuesto=impuesto)
             conteo[estado.value] += 1
             log.warning("Fideicomiso %s -> %s (%s)", f.id, estado.value, type(e).__name__)
             if efecto == "stop":
@@ -98,7 +98,7 @@ def procesar_lote(fideicomisos, periodo: tuple, repo, ejecutar, ejecucion_id: in
                 res.detenido = f"{fallos} fallos seguidos: se detiene el lote"
                 break
         else:
-            repo.marcar(f.id, txt, estado_ok, detalle_ok or "", ejecucion_id)
+            repo.marcar(f.id, txt, estado_ok, detalle_ok or "", ejecucion_id, impuesto=impuesto)
             conteo[estado_ok.value] += 1
             log.info("Fideicomiso %s -> %s", f.id, estado_ok.value)
             fallos = 0

@@ -17,7 +17,8 @@ log = get_logger(__name__)
 
 HOJA = "Fideicomisos"
 COLUMNAS = ("id", "nombre", "ruc", "declara_0", "responsable")
-
+BASE = ("id", "nombre", "ruc", "responsable")
+MARCAS = ("declara_0", "retencion_0")  # columna que decide que se procesa: IVA o retenciones
 
 @dataclass(frozen=True)
 class Fideicomiso:
@@ -55,8 +56,9 @@ def _txt(valor) -> str:
         return str(int(valor))
     return str(valor).strip()
 
-
-def leer_control(ruta: Path) -> ResultadoControl:
+def leer_control(ruta: Path, marca: str = "declara_0") -> ResultadoControl:
+    if marca not in MARCAS:
+        raise ConfigError(f"Marca desconocida: {marca}")
     if ruta is None:
         raise ConfigError("Falta CONTROL_XLSX en el .env")
     if not Path(ruta).is_file():
@@ -70,10 +72,11 @@ def leer_control(ruta: Path) -> ResultadoControl:
             raise ConfigError(f"Falta la hoja '{HOJA}' en el archivo de control")
         filas = libro[HOJA].iter_rows(values_only=True)
         encabezado = [_norm(c) for c in next(filas, ())]
-        faltan = [c for c in COLUMNAS if c not in encabezado]
+        columnas = BASE + (marca,)
+        faltan = [c for c in columnas if c not in encabezado]
         if faltan:
             raise ConfigError(f"Faltan columnas en '{HOJA}': {', '.join(faltan)}")
-        pos = {c: encabezado.index(c) for c in COLUMNAS}
+        pos = {c: encabezado.index(c) for c in columnas}
         datos = []
         for n, f in enumerate(filas, start=2):
             if all(_txt(c) == "" for c in f):
@@ -86,13 +89,13 @@ def leer_control(ruta: Path) -> ResultadoControl:
     rucs = Counter(d["ruc"] for _, d in datos if d["ruc"])
     pendientes, excluidos, omitidos = [], [], 0
     for n, d in datos:
-        marca = _norm(d["declara_0"])
-        if marca in ("no", ""):
+        valor = _norm(d[marca])
+        if valor in ("no", ""):
             omitidos += 1
             continue
         motivos = []
-        if marca != "si":
-            motivos.append("DECLARA_0 con valor no reconocido")
+        if valor != "si":
+            motivos.append(f"{marca.upper()} con valor no reconocido")
         if not d["id"]:
             motivos.append("ID vacio")
         elif ids[d["id"]] > 1:
@@ -109,7 +112,6 @@ def leer_control(ruta: Path) -> ResultadoControl:
     log.info("Control leido: %d filas, %d omitidas, %d pendientes, %d excluidas",
              len(datos), omitidos, len(pendientes), len(excluidos))
     return ResultadoControl(len(datos), omitidos, pendientes, excluidos)
-
 
 def ruta_control():
     """Ruta local del Control (CONTROL_XLSX en el .env) mientras no exista Graph."""

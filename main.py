@@ -121,16 +121,16 @@ def _flujo(ctx, page, cid: str, periodo: tuple[int, int], hasta: str, cred, cont
         log.warning("No se pudo capturar la pantalla final; la declaracion ya se envio")
     return f"comprobante serie {comprobante.name.split('_')[0]}"
 
-
 def _ejecutar_lote(args, periodo: tuple[int, int]) -> int:
     """Procesa todos los fideicomisos marcados con SI que pasan las validaciones y tienen credencial."""
     if args.enviar and settings.DRY_RUN:
         raise ZeroError("DRY_RUN=true en el .env: el envio real esta bloqueado")
-    r = leer_control(ruta_control())
+    marca = "retencion_0" if args.impuesto == "1031" else "declara_0"
+    r = leer_control(ruta_control(), marca)
     clave = getpass.getpass("Contrasena del archivo de credenciales: ")
     listos, extra = cruzar_credenciales(r.pendientes, clave)
     marcados = len(r.pendientes) + len(r.excluidos)
-    print(f"\nPeriodo: {nombre_mes(periodo[1])} {periodo[0]} | marcados SI: {marcados} | "
+    print(f"\nImpuesto: {args.impuesto} | Periodo: {nombre_mes(periodo[1])} {periodo[0]} | marcados SI: {marcados} | "
           f"listos: {len(listos)} | excluidos: {len(r.excluidos) + len(extra)}")
     for resp, n in sorted(Counter(f.responsable for f in listos).items()):
         print(f"  {n:4d}  {resp}")
@@ -149,7 +149,7 @@ def _ejecutar_lote(args, periodo: tuple[int, int]) -> int:
     contador = credential_repository.cargar_contador(clave) if args.hasta == "contador" else None
     estado_ok = Estado.DECLARADO if args.enviar else (Estado.SIMULADO if args.hasta == "contador" else Estado.PARCIAL)
     with Repositorio(settings.DATA_DIR / "execution_history.db") as repo:
-        ejec = repo.iniciar_ejecucion(settings.VERSION, settings.DRY_RUN, args.hasta,
+        ejec = repo.iniciar_ejecucion(settings.VERSION, settings.DRY_RUN, f"{args.hasta} ({args.impuesto})",
                                       f"{periodo[0]}-{periodo[1]:02d}", getpass.getuser())
         with open_context() as ctx:
             page = ctx.pages[0] if ctx.pages else ctx.new_page()
@@ -158,6 +158,8 @@ def _ejecutar_lote(args, periodo: tuple[int, int]) -> int:
                 cred = credential_repository.cargar_contribuyente(fid.id, fid.ruc, clave)
                 extra = {"enviar": True, "ruc": fid.ruc} if args.enviar else {}
                 try:
+                    if args.impuesto == "1031":
+                        return retenciones.recorrer(ctx, page, fid.id, periodo, args.hasta, cred, contador)
                     return _flujo(ctx, page, fid.id, periodo, args.hasta, cred, contador, **extra)
                 except Exception:
                     try:
@@ -167,11 +169,10 @@ def _ejecutar_lote(args, periodo: tuple[int, int]) -> int:
                     raise
 
             res = procesar_lote(listos, periodo, repo, ejecutar, ejec, estado_ok=estado_ok, max_n=args.max,
-                                pausa_s=args.pausa, incluir_revision=args.incluir_revision)
+                                pausa_s=args.pausa, incluir_revision=args.incluir_revision, impuesto=args.impuesto)
         repo.cerrar_ejecucion(ejec, res.resumen())
     print("\n" + res.resumen())
     return 3 if res.detenido else 0
-
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="zero")
@@ -199,8 +200,8 @@ def main(argv=None) -> int:
         ap.error("--lote requiere --login auto y --credenciales excel")
     if args.max is not None and args.max < 1:
         ap.error("--max debe ser 1 o mayor")
-    if args.impuesto != "2011" and (args.lote or args.enviar):
-        ap.error("--impuesto 1031 solo funciona con --contribuyente y nunca envia")
+    if args.impuesto != "2011" and args.enviar:
+        ap.error("--impuesto 1031 nunca envia: el envio de retenciones aun no existe")
     if args.enviar and not (args.lote and args.max and args.hasta == "contador"):
         ap.error("--enviar requiere --lote, --max N y --hasta contador")
 

@@ -24,7 +24,7 @@ def entorno(monkeypatch, tmp_path):
             Fideicomiso(4, "A3", "N", "1790000000003", "Resp1")]
     monkeypatch.setattr(settings, "DATA_DIR", tmp_path)
     monkeypatch.setattr(settings, "validar", lambda: None)
-    monkeypatch.setattr(main, "leer_control", lambda _r: ResultadoControl(10, 7, fids, []))
+    monkeypatch.setattr(main, "leer_control", lambda _r, _m="declara_0": ResultadoControl(10, 7, fids, []))
     monkeypatch.setattr(main, "ruta_control", lambda: None)
     monkeypatch.setattr(main, "cruzar_credenciales", lambda pend, _c: (pend, []))
     monkeypatch.setattr(main.getpass, "getpass", lambda *_: "maestra")
