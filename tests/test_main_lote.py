@@ -33,13 +33,13 @@ def entorno(monkeypatch, tmp_path):
                         lambda i, r, _c: llamadas["creds"].append(i) or Credencial(i, "contribuyente", r, "x"))
     monkeypatch.setattr(main.credential_repository, "cargar_contador",
                         lambda _c: Credencial("contador", "contador", "1710000000001", "y"))
-    monkeypatch.setattr(main, "capturar", lambda *a: llamadas["capturas"].append(a[-1]))
+    monkeypatch.setattr(main, "capturar", lambda *a: llamadas["capturas"].append(a[3]))  # a[3] = nombre del paso
 
     @contextmanager
     def fake_open():
         yield _Ctx()
     monkeypatch.setattr(main, "open_context", fake_open)
-    monkeypatch.setattr(main, "_flujo", lambda ctx, page, cid, per, hasta, cred, cont: llamadas["flujo"].append(cid))
+    monkeypatch.setattr(main, "_flujo", lambda ctx, page, cid, per, hasta, cred, cont, **kw: llamadas["flujo"].append(cid))
     return llamadas, tmp_path
 
 
@@ -74,7 +74,7 @@ def test_portal_cambiado_detiene_el_lote_y_devuelve_codigo_3(entorno, monkeypatc
     llamadas, tmp = entorno
     monkeypatch.setattr(main, "periodo_a_declarar", lambda: (2026, 10))
 
-    def falla(ctx, page, cid, per, hasta, cred, cont):
+    def falla(ctx, page, cid, per, hasta, cred, cont, **kw):
         llamadas["flujo"].append(cid)
         if cid == "A2":
             raise PortalChanged("selector")

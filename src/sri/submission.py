@@ -3,6 +3,7 @@ Candados: (1) el llamador debe declarar envio_autorizado=True; (2) un solo clic,
 se confirma con el mensaje del portal; (4) el comprobante se descarga, se verifica y se archiva.
 Cualquier fallo DESPUES del clic se vuelve EnvioIncierto o ComprobanteInvalido: nunca un error comun,
 porque un error comun se reintentaria y la declaracion pudo haberse enviado ya."""
+from collections.abc import Callable
 from datetime import date, datetime
 from pathlib import Path
 
@@ -24,8 +25,11 @@ ESPERA_DESCARGA_MS = 30_000
 
 
 def enviar_declaracion(page: Page, ruc: str, periodo: tuple[int, int], destino: Path, *, envio_autorizado: bool,
-                       hoy: date | None = None, ahora: datetime | None = None, impuesto: str = "2011") -> Path:
-    """Pulsa Aceptar UNA vez, confirma el exito, descarga el comprobante y lo archiva. Devuelve su ruta."""
+                       hoy: date | None = None, ahora: datetime | None = None, impuesto: str = "2011",
+                       evidencia: Callable[[], object] | None = None) -> Path:
+    """Pulsa Aceptar UNA vez, confirma el exito, descarga el comprobante y lo archiva. Devuelve su ruta.
+    'evidencia' (opcional) se llama una vez, justo despues de la confirmacion y ANTES de pulsar Imprimir; si falla,
+    solo se avisa: la declaracion ya se envio."""
     if envio_autorizado is not True:
         raise ConfigError("Envio no autorizado: no se pulsa Aceptar")
     boton = page.locator(BOTON_ACEPTAR)
@@ -45,6 +49,11 @@ def enviar_declaracion(page: Page, ruc: str, periodo: tuple[int, int], destino: 
         except PWTimeout:
             raise EnvioIncierto("El portal no confirmo el envio: la declaracion pudo haberse enviado") from None
         log.info("El portal confirmo: declaracion procesada")
+        if evidencia is not None:
+            try:
+                evidencia()
+            except Exception:
+                log.warning("No se pudo capturar la confirmacion; se continua con la descarga del comprobante")
         return _descargar_y_archivar(page, ruc, periodo, Path(destino), hoy, ahora, impuesto)
     except (EnvioIncierto, ComprobanteInvalido):
         raise

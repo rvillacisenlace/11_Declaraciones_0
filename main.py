@@ -19,7 +19,7 @@ from src.sri.browser import open_context
 from src.utils.evidence import capturar
 from src.utils.exceptions import ConfigError, ZeroError
 from src.utils.logger import configurar_logging, get_logger
-from src.utils.rutas import carpeta_declaracion
+from src.utils.rutas import carpeta_declaracion, carpeta_evidencia
 from src.utils.validators import nombre_mes, periodo_a_declarar
 
 log = get_logger("zero")
@@ -34,27 +34,40 @@ def _validacion_previa(cid: str, periodo: tuple[int, int]) -> None:
              cid, periodo[0], periodo[1], getpass.getuser())
 
 
-def _fideicomiso(cid: str):
-    """Busca el ID en el Control y exige que sea procesable (DECLARA_0 = SI y datos validos)."""
-    r = leer_control(ruta_control())
+def _marca(impuesto: str) -> str:
+    """Columna del Control que decide que se procesa: DECLARA_0 (IVA) o RETENCION_0 (retenciones)."""
+    return "retencion_0" if impuesto == "1031" else "declara_0"
+
+
+def _fideicomiso(cid: str, marca: str = "declara_0"):
+    """Busca el ID en el Control y exige que sea procesable (la marca SI y datos validos)."""
+    r = leer_control(ruta_control(), marca)
     for p in r.pendientes:
         if p.id == cid:
             return p
     for e in r.excluidos:
         if e.id == cid:
             raise ConfigError(f"El fideicomiso {cid} esta excluido: {e.motivo}")
-    raise ConfigError(f"El fideicomiso {cid} no esta marcado con SI en DECLARA_0 (o no existe en el Control)")
+    raise ConfigError(f"El fideicomiso {cid} no esta marcado con SI en {marca.upper()} (o no existe en el Control)")
 
 
-def _cargar_credenciales(cid: str, login: str, con_contador: bool, clave_maestra: str):
+def _cargar_credenciales(cid: str, login: str, con_contador: bool, clave_maestra: str, marca: str = "declara_0"):
     """Devuelve (credencial del fideicomiso o None, credencial del contador o None). Cruce por RUC."""
     cred = contador = None
     if login == "auto":
-        fid = _fideicomiso(cid)
+        fid = _fideicomiso(cid, marca)
         cred = credential_repository.cargar_contribuyente(fid.id, fid.ruc, clave_maestra)
     if con_contador:
         contador = credential_repository.cargar_contador(clave_maestra)
     return cred, contador
+
+
+def _datos_carpeta(args, cred):
+    """(ruc, responsable) para ubicar las capturas. Con login manual no hay datos: se usa el ID y SIN RESPONSABLE."""
+    if args.credenciales == "excel" and args.login == "auto":
+        fid = _fideicomiso(args.contribuyente, _marca(args.impuesto))
+        return fid.ruc, fid.responsable
+    return (cred.ruc if cred else None), None
 
 
 def _pedir(id_: str, tipo: str) -> Credencial:
@@ -77,56 +90,55 @@ def _credenciales_por_consola(cid: str, login: str, con_contador: bool):
 
 
 def _flujo(ctx, page, cid: str, periodo: tuple[int, int], hasta: str, cred, contador, *, enviar: bool = False,
-           ruc: str | None = None) -> str | None:
+           ruc: str | None = None, responsable: str | None = None) -> str | None:
+    """Recorrido del IVA. Capturas: una por pantalla, justo antes de cada clic (Siguiente, Siguiente, Aceptar, Imprimir)."""
+    evid = carpeta_evidencia(responsable, ruc or cid)
+
+    def foto(paso: str) -> None:
+        capturar(page, evid, periodo, paso, "2011")
+
     if cred is None:  # solo desarrollo
         navigation.abrir_login(page)
         input("\nInicie sesion MANUALMENTE en la ventana de Edge (un solo intento) y presione ENTER... ")
     else:
         authentication.iniciar_sesion(ctx, page, settings.SRI_LOGIN_URL, cred)
     navigation.abrir_formulario_iva(page)
-    capturar(page, cid, periodo, "01_formulario")
 
     declaration.seleccionar_obligacion(page)
     declaration.seleccionar_periodo(page, *periodo)
-    capturar(page, cid, periodo, "02_periodo")
+    foto("01_periodo")  # antes de Siguiente
     if hasta == "periodo":
         return
 
     declaration.siguiente(page, *periodo)
-    capturar(page, cid, periodo, "03_despues_siguiente")
     if hasta == "siguiente":
         return
 
     declaration.responder_valores_no(page)
-    capturar(page, cid, periodo, "04_valores_no")
+    foto("02_preguntas")  # antes del Siguiente del cuestionario
     if hasta == "valores":
         return
 
     declaration.siguiente_perfilador(page)
-    capturar(page, cid, periodo, "05_pantalla_firma")
     if hasta == "firma":
         return
 
     signature.llenar_contador(page, contador)  # NO pulsa Aceptar: ese clic envia la declaracion
-    capturar(page, cid, periodo, "06_contador_listo")
+    foto("03_resumen")  # antes de Aceptar
     if not enviar:
         return None
 
     # ENVIO REAL: solo se llega aqui con --enviar, DRY_RUN=false y las dos confirmaciones escritas del lote.
-    destino = carpeta_declaracion(ruc, "2011")
-    comprobante = submission.enviar_declaracion(page, ruc, periodo, destino, envio_autorizado=True)
-    try:
-        capturar(page, cid, periodo, "07_declarada")
-    except Exception:
-        log.warning("No se pudo capturar la pantalla final; la declaracion ya se envio")
+    destino = carpeta_declaracion(responsable, ruc, "2011")
+    comprobante = submission.enviar_declaracion(page, ruc, periodo, destino, envio_autorizado=True,
+                                                evidencia=lambda: foto("04_confirmacion"))  # antes de Imprimir
     return f"comprobante serie {comprobante.name.split('_')[0]}"
 
 def _ejecutar_lote(args, periodo: tuple[int, int]) -> int:
     """Procesa todos los fideicomisos marcados con SI que pasan las validaciones y tienen credencial."""
     if args.enviar and settings.DRY_RUN:
         raise ZeroError("DRY_RUN=true en el .env: el envio real esta bloqueado")
-    marca = "retencion_0" if args.impuesto == "1031" else "declara_0"
-    r = leer_control(ruta_control(), marca)
+    r = leer_control(ruta_control(), _marca(args.impuesto))
     clave = getpass.getpass("Contrasena del archivo de credenciales: ")
     listos, extra = cruzar_credenciales(r.pendientes, clave)
     marcados = len(r.pendientes) + len(r.excluidos)
@@ -157,14 +169,16 @@ def _ejecutar_lote(args, periodo: tuple[int, int]) -> int:
 
             def ejecutar(fid):
                 cred = credential_repository.cargar_contribuyente(fid.id, fid.ruc, clave)
-                extra = {"enviar": True, "ruc": fid.ruc} if args.enviar else {}
+                extra = {"ruc": fid.ruc, "responsable": fid.responsable}
+                if args.enviar:
+                    extra["enviar"] = True
                 try:
                     if args.impuesto == "1031":
                         return retenciones.recorrer(ctx, page, fid.id, periodo, args.hasta, cred, contador, **extra)
                     return _flujo(ctx, page, fid.id, periodo, args.hasta, cred, contador, **extra)
                 except Exception:
                     try:
-                        capturar(page, fid.id, periodo, "error")
+                        capturar(page, carpeta_evidencia(fid.responsable, fid.ruc), periodo, "error", args.impuesto)
                     except Exception:
                         log.warning("No se pudo capturar la pantalla de error")
                     raise
@@ -221,14 +235,16 @@ def main(argv=None) -> int:
         elif args.login == "auto" or con_contador:
             cred, contador = _cargar_credenciales(
                 args.contribuyente, args.login, con_contador,
-                getpass.getpass("Contrasena del archivo de credenciales: "))
+                getpass.getpass("Contrasena del archivo de credenciales: "), _marca(args.impuesto))
+        ruc, responsable = _datos_carpeta(args, cred)
         with open_context() as ctx:
             page = ctx.pages[0] if ctx.pages else ctx.new_page()
             try:
                 recorrido = retenciones.recorrer if args.impuesto == "1031" else _flujo
-                recorrido(ctx, page, args.contribuyente, periodo, args.hasta, cred, contador)
+                recorrido(ctx, page, args.contribuyente, periodo, args.hasta, cred, contador,
+                          ruc=ruc, responsable=responsable)
             except Exception:
-                capturar(page, args.contribuyente, periodo, "error")
+                capturar(page, carpeta_evidencia(responsable, ruc or args.contribuyente), periodo, "error", args.impuesto)
                 raise
     except ZeroError as e:
         log.error("%s: %s", type(e).__name__, str(e)[:300])

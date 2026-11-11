@@ -13,7 +13,7 @@ from src.sri import selectors as sel
 from src.utils.evidence import capturar
 from src.utils.exceptions import LoginError, PasoNoMapeado, PeriodoNoCoincide, PortalChanged, RecargosInesperados
 from src.utils.logger import get_logger
-from src.utils.rutas import carpeta_declaracion
+from src.utils.rutas import carpeta_declaracion, carpeta_evidencia
 from src.utils.validators import url_corta
 
 log = get_logger(__name__)
@@ -135,48 +135,48 @@ def verificar_sin_recargos(page: Page) -> None:
 
 
 def recorrer(ctx, page: Page, cid: str, periodo: tuple[int, int], hasta: str, cred, contador, *,
-             enviar: bool = False, ruc: str | None = None) -> str | None:
-    """Recorrido de retenciones. Nunca pulsa Aceptar por si mismo; el envio, si se ordena, lo hace submission."""
+             enviar: bool = False, ruc: str | None = None, responsable: str | None = None) -> str | None:
+    """Recorrido de retenciones. Nunca pulsa Aceptar por si mismo; el envio, si se ordena, lo hace submission.
+    Capturas: una por pantalla, justo antes de cada clic (Siguiente, Siguiente, Aceptar, Imprimir)."""
+    evid = carpeta_evidencia(responsable, ruc or cid)
+
+    def foto(paso: str) -> None:
+        capturar(page, evid, periodo, paso, CODIGO)
+
     if cred is None:  # solo desarrollo
         navigation.abrir_login(page)
         input("\nInicie sesion MANUALMENTE en la ventana de Edge (un solo intento) y presione ENTER... ")
     else:
         authentication.iniciar_sesion(ctx, page, settings.SRI_LOGIN_URL, cred)
     abrir_formulario(page)
-    capturar(page, cid, periodo, "ret_01_formulario")
 
     declaration.seleccionar_obligacion(page, CODIGO)
     declaration.seleccionar_periodo(page, *periodo)
-    capturar(page, cid, periodo, "ret_02_periodo")
+    foto("01_periodo")  # antes de Siguiente
     if hasta == "periodo":
         return
 
     siguiente(page, *periodo)
-    capturar(page, cid, periodo, "ret_03_despues_siguiente")
     if hasta == "siguiente":
         return
 
     responder_no(page)
-    capturar(page, cid, periodo, "ret_04_pregunta_no")
+    foto("02_preguntas")  # antes del Siguiente del cuestionario
     if hasta == "valores":
         return
 
     siguiente_perfilador(page)
-    capturar(page, cid, periodo, "ret_05_pantalla_firma")
     if hasta == "firma":
         return
 
     signature.llenar_contador(page, contador)
     verificar_sin_recargos(page)
-    capturar(page, cid, periodo, "ret_06_contador_listo")
+    foto("03_resumen")  # antes de Aceptar
     if not enviar:
         return None
 
     # ENVIO REAL de retenciones: solo se llega aqui con --enviar, DRY_RUN=false y las confirmaciones escritas del lote.
-    comprobante = submission.enviar_declaracion(page, ruc, periodo, carpeta_declaracion(ruc, CODIGO),
-                                                envio_autorizado=True, impuesto=CODIGO)
-    try:
-        capturar(page, cid, periodo, "ret_07_declarada")
-    except Exception:
-        log.warning("No se pudo capturar la pantalla final; la declaracion ya se envio")
+    comprobante = submission.enviar_declaracion(page, ruc, periodo, carpeta_declaracion(responsable, ruc, CODIGO),
+                                                envio_autorizado=True, impuesto=CODIGO,
+                                                evidencia=lambda: foto("04_confirmacion"))  # antes de Imprimir
     return f"comprobante serie {comprobante.name.split('_')[0]}"

@@ -44,6 +44,13 @@ class ResultadoControl:
     excluidos: list
 
 
+@dataclass(frozen=True)
+class Directorio:
+    por_id: dict      # id -> (ruc, responsable), de TODAS las filas del Control (sin importar las marcas)
+    por_ruc: dict     # ruc -> responsable
+    ambiguos: list    # ids o RUC repetidos con datos distintos: no sirven para ubicar nada con certeza
+
+
 def _norm(texto) -> str:
     t = unicodedata.normalize("NFKD", str(texto or "")).encode("ascii", "ignore").decode()
     return re.sub(r"\s+", "_", t.strip().lower())
@@ -112,6 +119,45 @@ def leer_control(ruta: Path, marca: str = "declara_0") -> ResultadoControl:
     log.info("Control leido: %d filas, %d omitidas, %d pendientes, %d excluidas",
              len(datos), omitidos, len(pendientes), len(excluidos))
     return ResultadoControl(len(datos), omitidos, pendientes, excluidos)
+
+def leer_directorio(ruta: Path) -> Directorio:
+    """Lee id, RUC y responsable de todas las filas del Control. Solo sirve para organizar carpetas: no valida marcas."""
+    if ruta is None:
+        raise ConfigError("Falta CONTROL_XLSX en el .env")
+    if not Path(ruta).is_file():
+        raise ConfigError(f"No se encontro el archivo de control: {Path(ruta).name} (revise la ruta en CONTROL_XLSX)")
+    try:
+        libro = load_workbook(ruta, read_only=True, data_only=True)
+    except PermissionError:
+        raise ConfigError("No se pudo leer el archivo de control: esta bloqueado por otro programa") from None
+    try:
+        if HOJA not in libro.sheetnames:
+            raise ConfigError(f"Falta la hoja '{HOJA}' en el archivo de control")
+        filas = libro[HOJA].iter_rows(values_only=True)
+        encabezado = [_norm(c) for c in next(filas, ())]
+        faltan = [c for c in ("id", "ruc", "responsable") if c not in encabezado]
+        if faltan:
+            raise ConfigError(f"Faltan columnas en '{HOJA}': {', '.join(faltan)}")
+        pos = {c: encabezado.index(c) for c in ("id", "ruc", "responsable")}
+        datos = []
+        for f in filas:
+            d = {c: _txt(f[i]) if i < len(f) else "" for c, i in pos.items()}
+            if d["id"] or d["ruc"]:
+                datos.append(d)
+    finally:
+        libro.close()
+    por_id, por_ruc, ambiguos = {}, {}, []
+    for d in datos:
+        for clave, tabla, valor in ((d["id"], por_id, (d["ruc"], d["responsable"])), (d["ruc"], por_ruc, d["responsable"])):
+            if not clave:
+                continue
+            if clave in tabla and tabla[clave] != valor:
+                ambiguos.append(clave)
+            tabla.setdefault(clave, valor)
+    for clave in set(ambiguos):  # lo ambiguo no se usa
+        por_id.pop(clave, None)
+        por_ruc.pop(clave, None)
+    return Directorio(por_id, por_ruc, sorted(set(ambiguos)))
 
 def ruta_control():
     """Ruta local del Control (CONTROL_XLSX en el .env) mientras no exista Graph."""
