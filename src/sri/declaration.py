@@ -118,7 +118,7 @@ def rechazar_si_ya_declarado(page: Page, evidencia=None, espera_ms: int = 20_000
     texto = ""
     try:
         dialogo = botones.first.locator("xpath=ancestor::div[contains(@class,'ui-dialog')][1]")
-        texto = " ".join(dialogo.inner_text(timeout=2_000).split())[:200]
+        texto = " ".join(dialogo.inner_text(timeout=2_000).split())[:500]
     except Exception:
         pass
     log.info("El portal avisa que ya existe una declaracion de este periodo: %s", texto or "(sin texto)")

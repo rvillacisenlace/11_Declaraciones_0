@@ -18,7 +18,7 @@ from src.services.fideicomiso_service import cruzar_credenciales, leer_control, 
 from src.sri import authentication, declaration, navigation, retenciones, signature, submission
 from src.sri.browser import open_context
 from src.utils.evidence import capturar
-from src.utils.exceptions import ConfigError, ZeroError
+from src.utils.exceptions import AlreadyDeclared, ConfigError, ZeroError
 from src.utils.logger import configurar_logging, get_logger
 from src.utils.rutas import carpeta_declaracion, carpeta_evidencia
 from src.utils.validators import nombre_mes, periodo_a_declarar
@@ -185,6 +185,8 @@ def _ejecutar_lote(args, periodo: tuple[int, int]) -> int:
                     if args.impuesto == "1031":
                         return retenciones.recorrer(ctx, page, fid.id, periodo, args.hasta, cred, contador, **extra)
                     return _flujo(ctx, page, fid.id, periodo, args.hasta, cred, contador, **extra)
+                except AlreadyDeclared:
+                    raise  # resultado esperado: ya tiene su propia captura (ya_declarado); otra de error seria basura
                 except Exception:
                     try:
                         capturar(page, carpeta_evidencia(fid.responsable, fid.ruc), periodo, "error", args.impuesto)
@@ -253,6 +255,8 @@ def main(argv=None) -> int:
                 recorrido = retenciones.recorrer if args.impuesto == "1031" else _flujo
                 recorrido(ctx, page, args.contribuyente, periodo, args.hasta, cred, contador,
                           ruc=ruc, responsable=responsable)
+            except AlreadyDeclared:
+                raise  # resultado esperado: ya tiene su propia captura (ya_declarado); otra de error seria basura
             except Exception:
                 capturar(page, carpeta_evidencia(responsable, ruc or args.contribuyente), periodo, "error", args.impuesto)
                 raise

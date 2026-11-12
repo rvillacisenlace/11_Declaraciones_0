@@ -221,6 +221,7 @@ def _lote_con_ya_declarado(entorno, monkeypatch, extra=(), impuesto=None):
 def test_un_fideicomiso_ya_declarado_no_detiene_el_lote_y_se_anota_en_el_control(entorno, monkeypatch):
     rc, llamadas, tmp, marcados = _lote_con_ya_declarado(entorno, monkeypatch)
     assert rc == 0 and llamadas["flujo"] == ["A1", "A2", "A3"]  # se siguio con el siguiente
+    assert "error" not in llamadas["capturas"]  # el aviso ya tiene su captura: otra de error seria basura
     assert _estados(tmp) == {"A1": "simulado", "A2": "ya_declarado", "A3": "simulado"}
     assert [(m[1], m[2], m[3]) for m in marcados] == [(3, "A2", "declara_0")]  # solo el ya declarado (A1 y A3 son simulados)
 
@@ -292,3 +293,35 @@ def test_declarado_se_omite_sin_contarlo_como_excluido(tmp_path):
     assert [p.id for p in iva.pendientes] == ["B"] and [p.id for p in ret.pendientes] == ["A"]
     assert [e.id for e in iva.excluidos] == ["C"] and [e.id for e in ret.excluidos] == ["C"]  # solo lo realmente raro
     assert iva.omitidos == 1 and ret.omitidos == 1
+
+
+def test_en_el_modo_individual_un_ya_declarado_tampoco_deja_captura_de_error(entorno, monkeypatch):
+    from contextlib import contextmanager
+    llamadas, _ = entorno
+    monkeypatch.setattr(main, "periodo_a_declarar", lambda: (2026, 10))
+    monkeypatch.setattr("builtins.input", lambda *_: "SI")
+
+    @contextmanager
+    def abrir():
+        yield type("Ctx", (), {"pages": [], "new_page": lambda self: object()})()
+    monkeypatch.setattr(main, "open_context", abrir)
+    monkeypatch.setattr(main, "_flujo", lambda *a, **k: (_ for _ in ()).throw(AlreadyDeclared("ya hay una declaracion")))
+    argv = ["--contribuyente", "R1", "--login", "manual", "--credenciales", "consola", "--hasta", "siguiente"]
+    assert main.main(argv) == 1  # el modo individual no tiene cola: termina con el aviso
+    assert llamadas["capturas"] == []
+
+
+def test_un_error_comun_si_deja_captura_de_error_en_el_modo_individual(entorno, monkeypatch):
+    from contextlib import contextmanager
+    llamadas, _ = entorno
+    monkeypatch.setattr(main, "periodo_a_declarar", lambda: (2026, 10))
+    monkeypatch.setattr("builtins.input", lambda *_: "SI")
+
+    @contextmanager
+    def abrir():
+        yield type("Ctx", (), {"pages": [], "new_page": lambda self: object()})()
+    monkeypatch.setattr(main, "open_context", abrir)
+    monkeypatch.setattr(main, "_flujo", lambda *a, **k: (_ for _ in ()).throw(PortalChanged("cambio el portal")))
+    argv = ["--contribuyente", "R1", "--login", "manual", "--credenciales", "consola", "--hasta", "siguiente"]
+    assert main.main(argv) == 1
+    assert llamadas["capturas"] == ["error"]
