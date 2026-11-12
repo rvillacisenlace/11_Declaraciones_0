@@ -1,64 +1,199 @@
-from diagnostics import mover_comprobantes as mv
+from pathlib import Path
+
+from openpyxl import Workbook
+
 from config import settings
+from diagnostics import mover_comprobantes as mv
+from src.utils.rutas import nombre_carpeta
+from tests.test_envio_retenciones import LINEAS_RET
 from tests.test_verificacion import LINEAS, RUC, _pdf_minimo
 
 NOMBRE = f"111111111111_{RUC}_20261106143005.pdf"
+IVA = "2011 - Declaraci\u00f3n de IVA"
+RET = "1031 - Declaraci\u00f3n de retenciones en la fuente"
+RESP = "Justin P\u00e9rez"
 
 
-def _preparar(tmp_path, monkeypatch):
-    origen = tmp_path / "evidence"
-    (origen / "142" / "2026-10").mkdir(parents=True)
-    (origen / "142" / "2026-10" / NOMBRE).write_bytes(_pdf_minimo(LINEAS))
-    (origen / "142" / "2026-10" / "RECHAZADO_20261106143005.pdf").write_bytes(b"x")
-    (origen / "142" / "2026-10" / "01_formulario_20261106.png").write_bytes(b"png")
+def _control(tmp_path, filas):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Fideicomisos"
+    ws.append(["ID", "NOMBRE", "RUC", "DECLARA_0", "RETENCION_0", "RESPONSABLE"])
+    for f in filas:
+        ws.append(f)
+    ruta = tmp_path / "control.xlsx"
+    wb.save(ruta)
+    return ruta
+
+
+def _entorno(tmp_path, monkeypatch, filas=None):
+    filas = [["142", "x", RUC, "NO", "NO", RESP]] if filas is None else filas
     monkeypatch.setattr(settings, "DECLARACIONES_DIR", tmp_path / "Zero" / "Declaraciones")
     monkeypatch.setattr(settings, "EVIDENCE_DIR", tmp_path / "Zero" / "Evidencias")
-    return origen
+    ruta = _control(tmp_path, filas)
+    monkeypatch.setattr(mv, "ruta_control", lambda: ruta)
+    antiguo = tmp_path / "antiguo"
+    antiguo.mkdir()
+    return antiguo
 
 
-def _destino(tmp_path):
-    return tmp_path / "Zero" / "Declaraciones" / RUC / "2011 - Declaraci\u00f3n de IVA" / NOMBRE
+def _decl(tmp_path, *partes):
+    return tmp_path / "Zero" / "Declaraciones" / Path(*partes)
+
+
+def _viejo(antiguo, lineas=LINEAS, nombre=NOMBRE):
+    carpeta = antiguo / "142" / "2026-10"
+    carpeta.mkdir(parents=True)
+    (carpeta / nombre).write_bytes(_pdf_minimo(lineas))
+    return carpeta / nombre
 
 
 def test_por_defecto_solo_simula(tmp_path, monkeypatch, capsys):
-    origen = _preparar(tmp_path, monkeypatch)
-    assert mv.main(["--origen", str(origen)]) == 0
-    assert (origen / "142" / "2026-10" / NOMBRE).exists() and not _destino(tmp_path).exists()
+    antiguo = _entorno(tmp_path, monkeypatch)
+    pdf = _viejo(antiguo)
+    assert mv.main(["--origen", str(antiguo)]) == 0
+    assert pdf.exists() and not (tmp_path / "Zero" / "Declaraciones").exists()
     out = capsys.readouterr().out
     assert "SIMULACION" in out and "Se moverian: 1" in out and RUC not in out  # el RUC solo sale enmascarado
 
 
-def test_aplicar_mueve_el_comprobante_y_no_toca_lo_demas(tmp_path, monkeypatch):
-    origen = _preparar(tmp_path, monkeypatch)
-    assert mv.main(["--origen", str(origen), "--aplicar"]) == 0
-    assert _destino(tmp_path).exists() and not (origen / "142" / "2026-10" / NOMBRE).exists()
-    assert (origen / "142" / "2026-10" / "RECHAZADO_20261106143005.pdf").exists()  # los rechazados no se mueven
-    assert (origen / "142" / "2026-10" / "01_formulario_20261106.png").exists()  # las capturas, solo con --capturas
+def test_aplicar_mueve_el_comprobante_a_su_responsable_y_no_toca_lo_demas(tmp_path, monkeypatch):
+    antiguo = _entorno(tmp_path, monkeypatch)
+    pdf = _viejo(antiguo)
+    (pdf.parent / "RECHAZADO_20261106143005.pdf").write_bytes(b"x")
+    assert mv.main(["--origen", str(antiguo), "--aplicar"]) == 0
+    assert _decl(tmp_path, RESP, RUC, IVA, NOMBRE).exists() and not pdf.exists()
+    assert (pdf.parent / "RECHAZADO_20261106143005.pdf").exists()  # los rechazados no se mueven
 
 
-def test_es_idempotente_y_no_sobrescribe(tmp_path, monkeypatch, capsys):
-    origen = _preparar(tmp_path, monkeypatch)
-    mv.main(["--origen", str(origen), "--aplicar"])
+def test_las_retenciones_van_a_su_propia_carpeta(tmp_path, monkeypatch):
+    antiguo = _entorno(tmp_path, monkeypatch)
+    _viejo(antiguo, LINEAS_RET)
+    mv.main(["--origen", str(antiguo), "--aplicar"])
+    assert _decl(tmp_path, RESP, RUC, RET, NOMBRE).exists()
+
+
+def test_reorganiza_lo_que_ya_estaba_en_el_esquema_anterior_sin_responsable(tmp_path, monkeypatch):
+    antiguo = _entorno(tmp_path, monkeypatch)
+    anterior = _decl(tmp_path, RUC, IVA)
+    anterior.mkdir(parents=True)
+    (anterior / NOMBRE).write_bytes(_pdf_minimo(LINEAS))
+    mv.main(["--origen", str(antiguo), "--aplicar"])
+    assert _decl(tmp_path, RESP, RUC, IVA, NOMBRE).exists()
+    assert not _decl(tmp_path, RUC).exists()  # las carpetas vacias del esquema anterior se quitan
+
+
+def test_se_limpian_las_carpetas_antiguas_que_quedan_vacias_pero_no_la_raiz(tmp_path, monkeypatch):
+    antiguo = _entorno(tmp_path, monkeypatch)
+    pdf = _viejo(antiguo)
+    mv.main(["--origen", str(antiguo), "--aplicar"])
+    assert not pdf.parent.exists() and not pdf.parent.parent.exists() and antiguo.exists()
+
+
+def test_es_idempotente(tmp_path, monkeypatch, capsys):
+    antiguo = _entorno(tmp_path, monkeypatch)
+    _viejo(antiguo)
+    mv.main(["--origen", str(antiguo), "--aplicar"])
     capsys.readouterr()
-    assert mv.main(["--origen", str(origen), "--aplicar"]) == 0
+    assert mv.main(["--origen", str(antiguo), "--aplicar"]) == 0
     assert "Movidos: 0" in capsys.readouterr().out
 
 
-def test_no_sobrescribe_un_destino_existente(tmp_path, monkeypatch):
-    origen = _preparar(tmp_path, monkeypatch)
-    destino = _destino(tmp_path)
+def test_no_sobrescribe_un_destino_existente(tmp_path, monkeypatch, capsys):
+    antiguo = _entorno(tmp_path, monkeypatch)
+    pdf = _viejo(antiguo)
+    destino = _decl(tmp_path, RESP, RUC, IVA, NOMBRE)
     destino.parent.mkdir(parents=True)
     destino.write_bytes(b"ya habia uno distinto")
-    mv.main(["--origen", str(origen), "--aplicar"])
-    assert destino.read_bytes() == b"ya habia uno distinto" and (origen / "142" / "2026-10" / NOMBRE).exists()
+    mv.main(["--origen", str(antiguo), "--aplicar"])
+    assert destino.read_bytes() == b"ya habia uno distinto" and pdf.exists()
+    assert "ya existian: 1" in capsys.readouterr().out
 
 
-def test_capturas_se_mueven_a_evidencias_conservando_la_estructura(tmp_path, monkeypatch):
-    origen = _preparar(tmp_path, monkeypatch)
-    mv.main(["--origen", str(origen), "--aplicar", "--capturas"])
-    assert (tmp_path / "Zero" / "Evidencias" / "142" / "2026-10" / "01_formulario_20261106.png").exists()
+def test_un_ruc_que_no_esta_en_el_control_se_deja_donde_esta(tmp_path, monkeypatch, capsys):
+    antiguo = _entorno(tmp_path, monkeypatch, filas=[["1", "x", "1790000000099", "NO", "NO", RESP]])
+    pdf = _viejo(antiguo)
+    mv.main(["--origen", str(antiguo), "--aplicar"])
+    assert pdf.exists() and not (tmp_path / "Zero" / "Declaraciones").exists()
+    assert "sin responsable: 1" in capsys.readouterr().out
 
 
-def test_origen_inexistente(tmp_path, monkeypatch, capsys):
-    _preparar(tmp_path, monkeypatch)
+def test_responsable_vacio_va_a_sin_responsable(tmp_path, monkeypatch):
+    antiguo = _entorno(tmp_path, monkeypatch, filas=[["142", "x", RUC, "NO", "NO", None]])
+    _viejo(antiguo)
+    mv.main(["--origen", str(antiguo), "--aplicar"])
+    assert _decl(tmp_path, "SIN RESPONSABLE", RUC, IVA, NOMBRE).exists()
+
+
+def test_un_responsable_con_caracteres_invalidos_se_normaliza(tmp_path, monkeypatch):
+    antiguo = _entorno(tmp_path, monkeypatch, filas=[["142", "x", RUC, "NO", "NO", "Ana/Luz:*"]])
+    _viejo(antiguo)
+    mv.main(["--origen", str(antiguo), "--aplicar"])
+    assert _decl(tmp_path, nombre_carpeta("Ana/Luz:*"), RUC, IVA, NOMBRE).exists()
+
+
+def test_un_ruc_con_dos_responsables_distintos_no_se_mueve(tmp_path, monkeypatch, capsys):
+    antiguo = _entorno(tmp_path, monkeypatch, filas=[["1", "x", RUC, "NO", "NO", "Ana"], ["2", "y", RUC, "NO", "NO", "Luis"]])
+    pdf = _viejo(antiguo)
+    mv.main(["--origen", str(antiguo), "--aplicar"])
+    out = capsys.readouterr().out
+    assert pdf.exists() and "AVISO" in out and "sin responsable: 1" in out
+
+
+# ------------------------------------------------------------------ capturas
+def _captura_vieja(raiz, id_="142", nombre="ret_04_pregunta_no_20261110_122653.png"):
+    carpeta = raiz / id_ / "2026-10"
+    carpeta.mkdir(parents=True)
+    (carpeta / nombre).write_bytes(b"png")
+    return carpeta / nombre
+
+
+def test_las_capturas_solo_se_mueven_con_la_opcion(tmp_path, monkeypatch):
+    antiguo = _entorno(tmp_path, monkeypatch)
+    png = _captura_vieja(antiguo)
+    mv.main(["--origen", str(antiguo), "--aplicar"])
+    assert png.exists()
+
+
+def test_las_capturas_pasan_a_evidencias_por_responsable_y_ruc_con_el_periodo_en_el_nombre(tmp_path, monkeypatch):
+    antiguo = _entorno(tmp_path, monkeypatch)
+    vieja = _captura_vieja(antiguo)
+    en_evidencias = _captura_vieja(tmp_path / "Zero" / "Evidencias", nombre="07_declarada_20261109_085627.png")
+    mv.main(["--origen", str(antiguo), "--aplicar", "--capturas"])
+    base = tmp_path / "Zero" / "Evidencias" / RESP / RUC
+    assert (base / f"2026-10_{vieja.name}").exists() and (base / f"2026-10_{en_evidencias.name}").exists()
+    assert not vieja.exists() and not en_evidencias.exists()
+    assert not (tmp_path / "Zero" / "Evidencias" / "142").exists()  # la carpeta antigua por ID quedo vacia y se quita
+
+
+def test_una_captura_de_un_id_que_no_esta_en_el_control_se_deja(tmp_path, monkeypatch, capsys):
+    antiguo = _entorno(tmp_path, monkeypatch)
+    png = _captura_vieja(antiguo, id_="R1")
+    mv.main(["--origen", str(antiguo), "--aplicar", "--capturas"])
+    assert png.exists() and "no estan en el Control" in capsys.readouterr().out
+
+
+def test_las_capturas_que_ya_estan_en_el_esquema_nuevo_no_se_tocan(tmp_path, monkeypatch):
+    antiguo = _entorno(tmp_path, monkeypatch)
+    nueva = tmp_path / "Zero" / "Evidencias" / RESP / RUC / "2026-10_1031_02_preguntas_20261110_152543.png"
+    nueva.parent.mkdir(parents=True)
+    nueva.write_bytes(b"png")
+    mv.main(["--origen", str(antiguo), "--aplicar", "--capturas"])
+    assert nueva.exists()
+
+
+def test_no_sobrescribe_una_captura_existente(tmp_path, monkeypatch):
+    antiguo = _entorno(tmp_path, monkeypatch)
+    vieja = _captura_vieja(antiguo)
+    destino = tmp_path / "Zero" / "Evidencias" / RESP / RUC / f"2026-10_{vieja.name}"
+    destino.parent.mkdir(parents=True)
+    destino.write_bytes(b"otra")
+    mv.main(["--origen", str(antiguo), "--aplicar", "--capturas"])
+    assert destino.read_bytes() == b"otra" and vieja.exists()
+
+
+def test_origen_inexistente_o_control_ilegible(tmp_path, monkeypatch):
+    _entorno(tmp_path, monkeypatch)
     assert mv.main(["--origen", str(tmp_path / "no_existe")]) == 1
+    monkeypatch.setattr(mv, "ruta_control", lambda: None)
+    assert mv.main(["--origen", str(tmp_path / "antiguo")]) == 1

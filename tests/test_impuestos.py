@@ -224,7 +224,7 @@ def test_el_lote_de_retenciones_lee_retencion_0_y_usa_el_recorrido_de_retencione
     monkeypatch.setattr(main, "leer_control", lambda _r, m="declara_0": marcas.append(m) or ResultadoControl(5, 3, fids, []))
     monkeypatch.setattr(main, "periodo_a_declarar", lambda: (2026, 10))
     _fake_open_context(monkeypatch)
-    monkeypatch.setattr(retenciones, "recorrer", lambda ctx, page, cid, per, hasta, cred, cont: recorridos.append(cid))
+    monkeypatch.setattr(retenciones, "recorrer", lambda ctx, page, cid, per, hasta, cred, cont, **kw: recorridos.append(cid))
     monkeypatch.setattr(main, "_flujo", lambda *a, **k: llamadas["flujo"].append("iva"))
     assert main.main(["--lote", "--impuesto", "1031", "--hasta", "periodo", "--pausa", "0"]) == 0
     assert marcas == ["retencion_0"] and recorridos == ["A1", "A2"] and llamadas["flujo"] == []
@@ -255,7 +255,7 @@ def test_los_dos_impuestos_en_el_mismo_periodo_quedan_como_filas_separadas(entor
     monkeypatch.setattr(main, "leer_control", lambda _r, m="declara_0": ResultadoControl(5, 4, fids, []))
     monkeypatch.setattr(main, "periodo_a_declarar", lambda: (2026, 10))
     _fake_open_context(monkeypatch)
-    monkeypatch.setattr(retenciones, "recorrer", lambda *a: None)
+    monkeypatch.setattr(retenciones, "recorrer", lambda *a, **k: None)
     monkeypatch.setattr(main, "_flujo", lambda *a, **k: None)
     main.main(["--lote", "--hasta", "periodo", "--pausa", "0"])
     main.main(["--lote", "--impuesto", "1031", "--hasta", "periodo", "--pausa", "0"])

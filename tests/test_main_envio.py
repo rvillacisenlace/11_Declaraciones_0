@@ -59,7 +59,7 @@ def test_envio_autorizado_pasa_enviar_y_ruc_y_deja_declarado(entorno, monkeypatc
     monkeypatch.setattr(main, "_flujo", _flujo_falso(llamadas["flujo"]))
     _teclado(monkeypatch, ["SI", "ENVIAR"])
     assert main.main(["--lote", "--enviar", "--max", "1", "--hasta", "contador", "--pausa", "0"]) == 0
-    assert llamadas["flujo"] == [("A1", {"enviar": True, "ruc": "1790000000001"})]
+    assert llamadas["flujo"] == [("A1", {"enviar": True, "ruc": "1790000000001", "responsable": "Resp1"})]
     assert _estado(tmp, "A1") == "declarado"
 
 
@@ -68,7 +68,7 @@ def test_sin_enviar_nunca_se_pasa_la_orden_de_enviar(entorno, monkeypatch):
     monkeypatch.setattr(main, "periodo_a_declarar", lambda: (2026, 10))
     monkeypatch.setattr(main, "_flujo", _flujo_falso(llamadas["flujo"]))
     assert main.main(["--lote", "--hasta", "contador", "--max", "2", "--pausa", "0"]) == 0
-    assert llamadas["flujo"] and all(kw == {} for _, kw in llamadas["flujo"])
+    assert llamadas["flujo"] and all("enviar" not in kw for _, kw in llamadas["flujo"])  # ruc y responsable si; la orden de enviar, nunca
 
 
 def _preparar_flujo(monkeypatch, llamadas):

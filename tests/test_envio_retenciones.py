@@ -117,12 +117,13 @@ def test_aunque_se_ordene_enviar_no_se_envia_si_el_recorrido_se_corta_antes(monk
 def test_con_enviar_se_llama_una_vez_autorizado_con_el_impuesto_y_la_carpeta_de_retenciones(monkeypatch):
     llamadas = []
     _preparar(monkeypatch, llamadas)
-    r = retenciones.recorrer(None, object(), "A1", PERIODO, "contador", object(), object(), enviar=True, ruc=RUC)
+    r = retenciones.recorrer(None, object(), "A1", PERIODO, "contador", object(), object(), enviar=True, ruc=RUC,
+                             responsable="Resp1")
     assert r == "comprobante serie 999" and len(llamadas) == 1
     args, kw = llamadas[0]
-    assert kw["envio_autorizado"] is True and kw["impuesto"] == "1031" and args[1] == RUC
+    assert kw["envio_autorizado"] is True and kw["impuesto"] == "1031" and args[1] == RUC and callable(kw["evidencia"])
     assert Path(args[3]).name == "1031 - Declaraci\u00f3n de retenciones en la fuente"
-    assert Path(args[3]).parent == settings.DECLARACIONES_DIR / RUC
+    assert Path(args[3]).parent == settings.DECLARACIONES_DIR / "Resp1" / RUC
 
 
 def test_el_envio_ocurre_despues_de_todos_los_pasos_y_en_este_orden(monkeypatch):
@@ -190,7 +191,7 @@ def test_envio_autorizado_de_retenciones_pasa_enviar_y_ruc_y_deja_declarado_en_1
     monkeypatch.setattr(main, "_flujo", lambda *a, **k: llamadas["flujo"].append("IVA"))
     _teclado(monkeypatch, ["SI", "ENVIAR"])
     assert main.main(["--lote", "--impuesto", "1031", "--enviar", "--max", "1", "--hasta", "contador", "--pausa", "0"]) == 0
-    assert llamadas["flujo"] == [("A1", {"enviar": True, "ruc": "1790000000001"})]
+    assert llamadas["flujo"] == [("A1", {"enviar": True, "ruc": "1790000000001", "responsable": "Resp1"})]
     con = sqlite3.connect(str(tmp / "execution_history.db"))
     assert con.execute("SELECT fideicomiso_id, impuesto, estado FROM declaraciones").fetchall() == [("A1", "1031", "declarado")]
     con.close()

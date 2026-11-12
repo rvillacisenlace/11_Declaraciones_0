@@ -57,7 +57,7 @@ def test_con_impuesto_1031_se_usa_el_recorrido_de_retenciones_y_no_el_del_iva(en
     monkeypatch.setattr(main, "open_context", abrir)
     monkeypatch.setattr("builtins.input", lambda *_: "SI")
     monkeypatch.setattr(main, "periodo_a_declarar", lambda: (2026, 10))
-    monkeypatch.setattr(retenciones, "recorrer", lambda *a: llamadas.append(("ret", a[2], a[4])))
+    monkeypatch.setattr(retenciones, "recorrer", lambda *a, **k: llamadas.append(("ret", a[2], a[4])))
     monkeypatch.setattr(main, "_flujo", lambda *a, **k: llamadas.append(("iva",)))
     argv = ["--contribuyente", "R1", "--impuesto", "1031", "--login", "manual", "--credenciales", "consola"]
     assert main.main(argv + ["--hasta", "periodo"]) == 0
