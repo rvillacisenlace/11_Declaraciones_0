@@ -75,7 +75,7 @@ def test_sin_enviar_nunca_se_pasa_la_orden_de_enviar(entorno, monkeypatch):
 def _preparar_flujo(monkeypatch, llamadas):
     monkeypatch.setattr(main.authentication, "iniciar_sesion", lambda *a, **k: None)
     monkeypatch.setattr(main.navigation, "abrir_formulario_iva", lambda p: None)
-    for nombre in ("seleccionar_obligacion", "seleccionar_periodo", "siguiente", "responder_valores_no", "siguiente_perfilador"):
+    for nombre in ("seleccionar_obligacion", "seleccionar_periodo", "siguiente", "rechazar_si_ya_declarado", "responder_valores_no", "siguiente_perfilador"):
         monkeypatch.setattr(main.declaration, nombre, lambda *a, **k: None)
     monkeypatch.setattr(main.signature, "llenar_contador", lambda *a, **k: None)
     monkeypatch.setattr(main.retenciones, "verificar_sin_recargos", lambda *a, **k: None)

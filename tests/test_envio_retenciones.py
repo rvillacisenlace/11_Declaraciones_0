@@ -89,7 +89,7 @@ def _preparar(monkeypatch, llamadas, orden=None, falla_recargos=None):
         return _Ruta()
     monkeypatch.setattr(retenciones.authentication, "iniciar_sesion", lambda *a, **k: None)
     monkeypatch.setattr(retenciones, "abrir_formulario", lambda p: None)
-    for nombre in ("seleccionar_obligacion", "seleccionar_periodo"):
+    for nombre in ("seleccionar_obligacion", "seleccionar_periodo", "rechazar_si_ya_declarado"):
         monkeypatch.setattr(retenciones.declaration, nombre, lambda *a, **k: None)
     for nombre in ("siguiente", "responder_no", "siguiente_perfilador"):
         monkeypatch.setattr(retenciones, nombre, paso(nombre))

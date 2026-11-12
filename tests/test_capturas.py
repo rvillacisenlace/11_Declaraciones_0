@@ -45,7 +45,7 @@ def test_el_impuesto_por_defecto_es_iva(tmp_path):
 def _preparar_iva(monkeypatch, pasos, envios):
     monkeypatch.setattr(main.authentication, "iniciar_sesion", lambda *a, **k: None)
     monkeypatch.setattr(main.navigation, "abrir_formulario_iva", lambda p: None)
-    for nombre in ("seleccionar_obligacion", "seleccionar_periodo", "siguiente", "responder_valores_no", "siguiente_perfilador"):
+    for nombre in ("seleccionar_obligacion", "seleccionar_periodo", "siguiente", "rechazar_si_ya_declarado", "responder_valores_no", "siguiente_perfilador"):
         monkeypatch.setattr(main.declaration, nombre, lambda *a, **k: None)
     monkeypatch.setattr(main.signature, "llenar_contador", lambda *a, **k: None)
     monkeypatch.setattr(main.retenciones, "verificar_sin_recargos", lambda *a, **k: None)
@@ -97,7 +97,7 @@ def test_iva_la_confirmacion_se_captura_con_el_callback_y_el_comprobante_va_al_a
 def _preparar_ret(monkeypatch, pasos, envios):
     monkeypatch.setattr(retenciones.authentication, "iniciar_sesion", lambda *a, **k: None)
     monkeypatch.setattr(retenciones, "abrir_formulario", lambda p: None)
-    for nombre in ("seleccionar_obligacion", "seleccionar_periodo"):
+    for nombre in ("seleccionar_obligacion", "seleccionar_periodo", "rechazar_si_ya_declarado"):
         monkeypatch.setattr(retenciones.declaration, nombre, lambda *a, **k: None)
     for nombre in ("siguiente", "responder_no", "siguiente_perfilador", "verificar_sin_recargos"):
         monkeypatch.setattr(retenciones, nombre, lambda *a, **k: None)
