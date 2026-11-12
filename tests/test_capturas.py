@@ -48,6 +48,7 @@ def _preparar_iva(monkeypatch, pasos, envios):
     for nombre in ("seleccionar_obligacion", "seleccionar_periodo", "siguiente", "responder_valores_no", "siguiente_perfilador"):
         monkeypatch.setattr(main.declaration, nombre, lambda *a, **k: None)
     monkeypatch.setattr(main.signature, "llenar_contador", lambda *a, **k: None)
+    monkeypatch.setattr(main.retenciones, "verificar_sin_recargos", lambda *a, **k: None)
     monkeypatch.setattr(main, "capturar", lambda page, carpeta, periodo, paso, impuesto: pasos.append((paso, impuesto, carpeta)))
     monkeypatch.setattr(submission, "enviar_declaracion", lambda *a, **k: envios.append((a, k)) or _Ruta())
 

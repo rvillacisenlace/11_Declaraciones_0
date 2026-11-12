@@ -97,7 +97,7 @@ def leer_control(ruta: Path, marca: str = "declara_0") -> ResultadoControl:
     pendientes, excluidos, omitidos = [], [], 0
     for n, d in datos:
         valor = _norm(d[marca])
-        if valor in ("no", ""):
+        if valor in ("no", "", "declarado"):  # DECLARADO: ya hecho, se omite igual que NO
             omitidos += 1
             continue
         motivos = []

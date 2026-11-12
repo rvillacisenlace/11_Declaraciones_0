@@ -25,3 +25,7 @@ PREGUNTA_FILA = "div.respuestas-perfilamiento"
 PREGUNTA_VALORES = "Requiere informar valores"
 DIALOGO_MENSAJES = '[id="frmFlujoDeclaracion:dialogoMensajesPersonalizados"]'
 BOTON_PERFILADOR_SIGUIENTE = '[id="frmFlujoDeclaracion:btnPerfiladorSiguiente"]'  # Siguiente del cuestionario
+
+# Aviso que aparece tras Siguiente cuando ya existe una declaracion original de ese periodo (botones Aceptar / Rechazar).
+# El id de los botones es generado y cambia; lo estable es el nombre del dialogo dentro de su onclick.
+AVISO_YA_DECLARADO = 'button[onclick*="dlgDeclaracionOriginalSinTransacciones"]'

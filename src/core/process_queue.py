@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from src.database.models import FINALES, Estado
 from src.utils.exceptions import (AlreadyDeclared, CaptchaRejected, ComprobanteInvalido, ConfigError,
                                   ContadorRechazado, EnvioIncierto, ObligacionNoDisponible, PasoNoMapeado,
-                                  PeriodoNoCoincide, PortalChanged)
+                                  PeriodoNoCoincide, PortalChanged, RecargosInesperados)
 from src.utils.logger import get_logger
 
 log = get_logger(__name__)
@@ -45,16 +45,26 @@ def _clasificar(e: Exception):
         return Estado.REVISION_MANUAL, "stop", "no se pudo confirmar el envio o su comprobante: la declaracion pudo enviarse, verifique en el SRI"
     if isinstance(e, (PortalChanged, PasoNoMapeado)):
         return Estado.REVISION_MANUAL, "stop", f"el portal no respondio como se esperaba ({type(e).__name__})"
-    if isinstance(e, (PeriodoNoCoincide, CaptchaRejected)):
+    if isinstance(e, (PeriodoNoCoincide, CaptchaRejected, RecargosInesperados)):
         return Estado.REVISION_MANUAL, "fallo", None
     if isinstance(e, ConfigError):
         return Estado.ERROR, "neutro", None
     return Estado.ERROR, "fallo", None  # credenciales rechazadas, login, imprevistos
 
+def _avisar(al_terminar, f, estado: Estado) -> None:
+    """Avisa de un estado final (declarado / ya declarado) para reflejarlo en el Control. Si falla, el lote sigue."""
+    if al_terminar is None or estado not in (Estado.DECLARADO, Estado.YA_DECLARADO):
+        return
+    try:
+        al_terminar(f, estado)
+    except Exception as e:
+        log.warning("No se pudo reflejar el estado de %s en el Control (%s): marquelo a mano", f.id, type(e).__name__)
+
+
 def procesar_lote(fideicomisos, periodo: tuple, repo, ejecutar, ejecucion_id: int, *, estado_ok: Estado,
                   max_n: int | None = None, pausa_s: float = 0.0, max_fallos_seguidos: int = 3,
-                  incluir_revision: bool = False, impuesto: str = "2011", dormir=time.sleep,
-                  azar=random.uniform) -> ResultadoLote:
+                  incluir_revision: bool = False, impuesto: str = "2011", al_terminar=None,
+                  dormir=time.sleep, azar=random.uniform) -> ResultadoLote:
     txt = f"{periodo[0]}-{periodo[1]:02d}"
     res, conteo = ResultadoLote(), Counter()
     recuperadas = repo.recuperar_interrumpidas(txt, ejecucion_id)
@@ -90,6 +100,7 @@ def procesar_lote(fideicomisos, periodo: tuple, repo, ejecutar, ejecucion_id: in
             repo.marcar(f.id, txt, estado, f"{type(e).__name__}: {e}", ejecucion_id, impuesto=impuesto)
             conteo[estado.value] += 1
             log.warning("Fideicomiso %s -> %s (%s)", f.id, estado.value, type(e).__name__)
+            _avisar(al_terminar, f, estado)
             if efecto == "stop":
                 res.detenido = motivo
                 break
@@ -101,6 +112,7 @@ def procesar_lote(fideicomisos, periodo: tuple, repo, ejecutar, ejecucion_id: in
             repo.marcar(f.id, txt, estado_ok, detalle_ok or "", ejecucion_id, impuesto=impuesto)
             conteo[estado_ok.value] += 1
             log.info("Fideicomiso %s -> %s", f.id, estado_ok.value)
+            _avisar(al_terminar, f, estado_ok)
             fallos = 0
     res.por_estado = dict(conteo)
     log.info("Lote terminado: %s", res.resumen())

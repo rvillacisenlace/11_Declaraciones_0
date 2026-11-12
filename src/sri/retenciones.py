@@ -157,6 +157,7 @@ def recorrer(ctx, page: Page, cid: str, periodo: tuple[int, int], hasta: str, cr
         return
 
     siguiente(page, *periodo)
+    declaration.rechazar_si_ya_declarado(page, evidencia=lambda: foto("ya_declarado"))  # si ya esta declarado: Rechazar
     if hasta == "siguiente":
         return
 

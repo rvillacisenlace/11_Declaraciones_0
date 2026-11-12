@@ -13,6 +13,7 @@ from src.database.models import Estado
 from src.database.repository import Repositorio
 from src.security import credential_repository
 from src.security.credential_repository import Credencial
+from src.services.control_writer import marcar_declarado
 from src.services.fideicomiso_service import cruzar_credenciales, leer_control, ruta_control
 from src.sri import authentication, declaration, navigation, retenciones, signature, submission
 from src.sri.browser import open_context
@@ -111,6 +112,7 @@ def _flujo(ctx, page, cid: str, periodo: tuple[int, int], hasta: str, cred, cont
         return
 
     declaration.siguiente(page, *periodo)
+    declaration.rechazar_si_ya_declarado(page, evidencia=lambda: foto("ya_declarado"))  # si ya esta declarado: Rechazar
     if hasta == "siguiente":
         return
 
@@ -124,6 +126,7 @@ def _flujo(ctx, page, cid: str, periodo: tuple[int, int], hasta: str, cred, cont
         return
 
     signature.llenar_contador(page, contador)  # NO pulsa Aceptar: ese clic envia la declaracion
+    retenciones.verificar_sin_recargos(page)  # interes y multa deben ser 0; si no, no seria una declaracion en cero
     foto("03_resumen")  # antes de Aceptar
     if not enviar:
         return None
@@ -161,6 +164,12 @@ def _ejecutar_lote(args, periodo: tuple[int, int]) -> int:
 
     contador = credential_repository.cargar_contador(clave) if args.hasta == "contador" else None
     estado_ok = Estado.DECLARADO if args.enviar else (Estado.SIMULADO if args.hasta == "contador" else Estado.PARCIAL)
+   
+    def reflejar_en_control(f, estado):
+        """DECLARADO y YA_DECLARADO se anotan como DECLARADO en la celda del impuesto (solo si decia SI)."""
+        if ruta_control() is not None:
+            marcar_declarado(ruta_control(), f.fila, f.id, _marca(args.impuesto), settings.DATA_DIR / "respaldos")
+    
     with Repositorio(settings.DATA_DIR / "execution_history.db") as repo:
         ejec = repo.iniciar_ejecucion(settings.VERSION, settings.DRY_RUN, f"{args.hasta} ({args.impuesto})",
                                       f"{periodo[0]}-{periodo[1]:02d}", getpass.getuser())
@@ -184,7 +193,8 @@ def _ejecutar_lote(args, periodo: tuple[int, int]) -> int:
                     raise
 
             res = procesar_lote(listos, periodo, repo, ejecutar, ejec, estado_ok=estado_ok, max_n=args.max,
-                                pausa_s=args.pausa, incluir_revision=args.incluir_revision, impuesto=args.impuesto)
+                                pausa_s=args.pausa, incluir_revision=args.incluir_revision, impuesto=args.impuesto,
+                                al_terminar=reflejar_en_control)
         repo.cerrar_ejecucion(ejec, res.resumen())
     print("\n" + res.resumen())
     return 3 if res.detenido else 0

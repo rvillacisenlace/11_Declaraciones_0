@@ -262,3 +262,15 @@ def test_los_dos_impuestos_en_el_mismo_periodo_quedan_como_filas_separadas(entor
     con = sqlite3.connect(str(tmp / "execution_history.db"))
     assert con.execute("SELECT impuesto FROM declaraciones ORDER BY impuesto").fetchall() == [("1031",), ("2011",)]
     con.close()
+
+
+def test_un_recargo_deja_el_fideicomiso_en_revision_manual_sin_detener_el_lote():
+    from src.utils.exceptions import RecargosInesperados
+
+    def ejecutar(f):
+        if f.id == "1":
+            raise RecargosInesperados("multa 1.00")
+    with Repositorio(":memory:") as r:
+        res = procesar_lote([F("1"), F("2")], P, r, ejecutar, 1, estado_ok=Estado.SIMULADO)
+        assert r.estado("1", TXT) == Estado.REVISION_MANUAL and r.estado("2", TXT) == Estado.SIMULADO
+        assert res.detenido is None  # un solo fallo no detiene el lote: otros fideicomisos pueden estar en plazo

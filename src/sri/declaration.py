@@ -6,9 +6,11 @@ from playwright.sync_api import TimeoutError as PWTimeout
 from playwright.sync_api import Error as PWError
 
 from src.sri import selectors as sel
-from src.utils.exceptions import ObligacionNoDisponible, PasoNoMapeado, PeriodoNoCoincide, PortalChanged
+from src.utils.exceptions import (AlreadyDeclared, ObligacionNoDisponible, PasoNoMapeado, PeriodoNoCoincide,
+                                  PortalChanged)
 from src.utils.logger import get_logger
 from src.utils.validators import hoy_ecuador, nombre_mes
+
 
 log = get_logger(__name__)
 
@@ -101,6 +103,39 @@ def _esperar_ajax(page: Page, timeout_ms: int) -> None:
         page.wait_for_load_state("networkidle", timeout=timeout_ms)
     except PWTimeout:
         pass
+    
+def rechazar_si_ya_declarado(page: Page, evidencia=None, espera_ms: int = 20_000) -> None:
+    """Tras Siguiente el portal muestra las preguntas o, si ya hay una declaracion original de ese periodo, un aviso
+    con Aceptar y Rechazar. Se pulsa SOLO Rechazar (Aceptar seguiria adelante) y se lanza AlreadyDeclared."""
+    botones = page.locator(sel.AVISO_YA_DECLARADO).filter(visible=True)
+    preguntas = page.locator(sel.PREGUNTA_FILA).filter(visible=True)
+    try:
+        botones.or_(preguntas).first.wait_for(state="attached", timeout=espera_ms)
+    except PWTimeout:
+        return  # no aparecio ninguno de los dos: los pasos siguientes informaran
+    if botones.count() == 0:
+        return  # aparecieron las preguntas: no esta declarado
+    texto = ""
+    try:
+        dialogo = botones.first.locator("xpath=ancestor::div[contains(@class,'ui-dialog')][1]")
+        texto = " ".join(dialogo.inner_text(timeout=2_000).split())[:200]
+    except Exception:
+        pass
+    log.info("El portal avisa que ya existe una declaracion de este periodo: %s", texto or "(sin texto)")
+    rechazar = botones.filter(has_text=re.compile(r"^\s*Rechazar\s*$"))
+    if rechazar.count() != 1:
+        raise PortalChanged("El aviso de declaracion existente no tiene exactamente un boton Rechazar")
+    if evidencia is not None:
+        try:
+            evidencia()
+        except Exception:
+            log.warning("No se pudo capturar el aviso de declaracion existente")
+    try:
+        rechazar.first.click()
+        _esperar_ajax(page, 10_000)
+    except Exception:
+        log.warning("No se pudo cerrar el aviso con Rechazar; se sigue igual")
+    raise AlreadyDeclared("El portal indica que ya existe una declaracion original de este periodo")
 
 def _log_cuestionario(page: Page) -> None:
     """Deja en el log cada pregunta del cuestionario y su respuesta actual (solo diagnostico)."""

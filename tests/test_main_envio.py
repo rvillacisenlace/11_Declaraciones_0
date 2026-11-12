@@ -4,6 +4,7 @@ import main
 from config import settings
 from src.sri import submission
 from tests import test_main_lote as _base
+from src.utils.exceptions import RecargosInesperados
 
 entorno = _base.entorno  # fixture compartida
 _estado = _base._estado
@@ -77,6 +78,7 @@ def _preparar_flujo(monkeypatch, llamadas):
     for nombre in ("seleccionar_obligacion", "seleccionar_periodo", "siguiente", "responder_valores_no", "siguiente_perfilador"):
         monkeypatch.setattr(main.declaration, nombre, lambda *a, **k: None)
     monkeypatch.setattr(main.signature, "llenar_contador", lambda *a, **k: None)
+    monkeypatch.setattr(main.retenciones, "verificar_sin_recargos", lambda *a, **k: None)
     monkeypatch.setattr(main, "capturar", lambda *a: None)
     monkeypatch.setattr(submission, "enviar_declaracion", lambda *a, **k: llamadas.append((a, k)) or _Ruta())
 
@@ -98,3 +100,25 @@ def test_flujo_con_enviar_llama_una_vez_autorizado_y_devuelve_la_serie(monkeypat
     r = main._flujo(None, object(), "A1", (2026, 10), "contador", object(), object(), enviar=True, ruc="1790000000001")
     assert r == "comprobante serie 999" and len(llamadas) == 1
     assert llamadas[0][1]["envio_autorizado"] is True and llamadas[0][0][1] == "1790000000001"
+
+
+def test_el_iva_revisa_los_recargos_despues_del_contador_y_antes_de_enviar(monkeypatch):
+    orden = []
+    _preparar_flujo(monkeypatch, [])
+    monkeypatch.setattr(main.signature, "llenar_contador", lambda *a, **k: orden.append("contador"))
+    monkeypatch.setattr(main.retenciones, "verificar_sin_recargos", lambda *a, **k: orden.append("recargos"))
+    monkeypatch.setattr(submission, "enviar_declaracion", lambda *a, **k: orden.append("enviar") or _Ruta())
+    main._flujo(None, object(), "A1", (2026, 10), "contador", object(), object(), enviar=True, ruc="1790000000001")
+    assert orden == ["contador", "recargos", "enviar"]
+
+
+def test_un_recargo_en_el_iva_impide_el_envio(monkeypatch):
+    llamadas = []
+    _preparar_flujo(monkeypatch, llamadas)
+
+    def falla(*a, **k):
+        raise RecargosInesperados("multa 1.00")
+    monkeypatch.setattr(main.retenciones, "verificar_sin_recargos", falla)
+    with pytest.raises(RecargosInesperados):
+        main._flujo(None, object(), "A1", (2026, 10), "contador", object(), object(), enviar=True, ruc="1790000000001")
+    assert llamadas == []
