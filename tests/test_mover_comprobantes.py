@@ -62,7 +62,7 @@ def test_aplicar_mueve_el_comprobante_a_su_responsable_y_no_toca_lo_demas(tmp_pa
     pdf = _viejo(antiguo)
     (pdf.parent / "RECHAZADO_20261106143005.pdf").write_bytes(b"x")
     assert mv.main(["--origen", str(antiguo), "--aplicar"]) == 0
-    assert _decl(tmp_path, RESP, RUC, IVA, NOMBRE).exists() and not pdf.exists()
+    assert _decl(tmp_path, RESP, RUC, "10-2026", IVA, NOMBRE).exists() and not pdf.exists()
     assert (pdf.parent / "RECHAZADO_20261106143005.pdf").exists()  # los rechazados no se mueven
 
 
@@ -70,7 +70,7 @@ def test_las_retenciones_van_a_su_propia_carpeta(tmp_path, monkeypatch):
     antiguo = _entorno(tmp_path, monkeypatch)
     _viejo(antiguo, LINEAS_RET)
     mv.main(["--origen", str(antiguo), "--aplicar"])
-    assert _decl(tmp_path, RESP, RUC, RET, NOMBRE).exists()
+    assert _decl(tmp_path, RESP, RUC, "10-2026", RET, NOMBRE).exists()
 
 
 def test_reorganiza_lo_que_ya_estaba_en_el_esquema_anterior_sin_responsable(tmp_path, monkeypatch):
@@ -79,7 +79,7 @@ def test_reorganiza_lo_que_ya_estaba_en_el_esquema_anterior_sin_responsable(tmp_
     anterior.mkdir(parents=True)
     (anterior / NOMBRE).write_bytes(_pdf_minimo(LINEAS))
     mv.main(["--origen", str(antiguo), "--aplicar"])
-    assert _decl(tmp_path, RESP, RUC, IVA, NOMBRE).exists()
+    assert _decl(tmp_path, RESP, RUC, "10-2026", IVA, NOMBRE).exists()
     assert not _decl(tmp_path, RUC).exists()  # las carpetas vacias del esquema anterior se quitan
 
 
@@ -102,7 +102,7 @@ def test_es_idempotente(tmp_path, monkeypatch, capsys):
 def test_no_sobrescribe_un_destino_existente(tmp_path, monkeypatch, capsys):
     antiguo = _entorno(tmp_path, monkeypatch)
     pdf = _viejo(antiguo)
-    destino = _decl(tmp_path, RESP, RUC, IVA, NOMBRE)
+    destino = _decl(tmp_path, RESP, RUC, "10-2026", IVA, NOMBRE)
     destino.parent.mkdir(parents=True)
     destino.write_bytes(b"ya habia uno distinto")
     mv.main(["--origen", str(antiguo), "--aplicar"])
@@ -122,14 +122,14 @@ def test_responsable_vacio_va_a_sin_responsable(tmp_path, monkeypatch):
     antiguo = _entorno(tmp_path, monkeypatch, filas=[["142", "x", RUC, "NO", "NO", None]])
     _viejo(antiguo)
     mv.main(["--origen", str(antiguo), "--aplicar"])
-    assert _decl(tmp_path, "SIN RESPONSABLE", RUC, IVA, NOMBRE).exists()
+    assert _decl(tmp_path, "SIN RESPONSABLE", RUC, "10-2026", IVA, NOMBRE).exists()
 
 
 def test_un_responsable_con_caracteres_invalidos_se_normaliza(tmp_path, monkeypatch):
     antiguo = _entorno(tmp_path, monkeypatch, filas=[["142", "x", RUC, "NO", "NO", "Ana/Luz:*"]])
     _viejo(antiguo)
     mv.main(["--origen", str(antiguo), "--aplicar"])
-    assert _decl(tmp_path, nombre_carpeta("Ana/Luz:*"), RUC, IVA, NOMBRE).exists()
+    assert _decl(tmp_path, nombre_carpeta("Ana/Luz:*"), RUC, "10-2026", IVA, NOMBRE).exists()
 
 
 def test_un_ruc_con_dos_responsables_distintos_no_se_mueve(tmp_path, monkeypatch, capsys):
@@ -138,6 +138,35 @@ def test_un_ruc_con_dos_responsables_distintos_no_se_mueve(tmp_path, monkeypatch
     mv.main(["--origen", str(antiguo), "--aplicar"])
     out = capsys.readouterr().out
     assert pdf.exists() and "AVISO" in out and "sin responsable: 1" in out
+
+
+def test_reorganiza_el_esquema_actual_que_aun_no_tiene_carpeta_de_periodo(tmp_path, monkeypatch):
+    antiguo = _entorno(tmp_path, monkeypatch)
+    actual = _decl(tmp_path, RESP, RUC, IVA)  # Responsable/RUC/impuesto, sin periodo
+    actual.mkdir(parents=True)
+    (actual / NOMBRE).write_bytes(_pdf_minimo(LINEAS))
+    mv.main(["--origen", str(antiguo), "--aplicar"])
+    assert _decl(tmp_path, RESP, RUC, "10-2026", IVA, NOMBRE).exists()
+    assert not actual.exists()  # la carpeta de impuesto sin periodo quedo vacia y se quita
+
+
+def test_cada_comprobante_va_a_la_carpeta_de_su_propio_periodo(tmp_path, monkeypatch):
+    antiguo = _entorno(tmp_path, monkeypatch)
+    otro = f"222222222222_{RUC}_20270206143005.pdf"
+    carpeta = antiguo / "142" / "2027-01"
+    carpeta.mkdir(parents=True)
+    (carpeta / otro).write_bytes(_pdf_minimo([l.replace("OCTUBRE 2026", "ENERO 2027") for l in LINEAS]))
+    _viejo(antiguo)
+    mv.main(["--origen", str(antiguo), "--aplicar"])
+    assert _decl(tmp_path, RESP, RUC, "10-2026", IVA, NOMBRE).exists()
+    assert _decl(tmp_path, RESP, RUC, "01-2027", IVA, otro).exists()
+
+
+def test_un_periodo_que_no_se_reconoce_se_informa_y_no_se_mueve(tmp_path, monkeypatch, capsys):
+    antiguo = _entorno(tmp_path, monkeypatch)
+    pdf = _viejo(antiguo, [l.replace("OCTUBRE 2026", "OCTUBREX 2026") for l in LINEAS])
+    mv.main(["--origen", str(antiguo), "--aplicar"])
+    assert pdf.exists() and "ilegibles: 1" in capsys.readouterr().out
 
 
 # ------------------------------------------------------------------ capturas

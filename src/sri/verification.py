@@ -88,6 +88,15 @@ def verificar(c: Comprobante, ruc_esperado: str, periodo: tuple[int, int], hoy: 
         raise ComprobanteInvalido("; ".join(problemas))
 
 
+def periodo_de(c: Comprobante) -> tuple[int, int]:
+    """Periodo del comprobante como (anio, mes); p. ej. 'OCTUBRE 2026' -> (2026, 10)."""
+    nombre, anio = c.periodo.rsplit(" ", 1)
+    for mes in range(1, 13):
+        if _norm(nombre_mes(mes)) == nombre:
+            return int(anio), mes
+    raise ComprobanteInvalido(f"No se reconoce el periodo del comprobante: {c.periodo}")
+
+
 def nombre_archivo(c: Comprobante, descarga: datetime) -> str:
     return f"{c.serie}_{c.ruc}_{descarga:%Y%m%d%H%M%S}.pdf"
 

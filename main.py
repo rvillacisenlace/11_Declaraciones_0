@@ -132,7 +132,7 @@ def _flujo(ctx, page, cid: str, periodo: tuple[int, int], hasta: str, cred, cont
         return None
 
     # ENVIO REAL: solo se llega aqui con --enviar, DRY_RUN=false y las dos confirmaciones escritas del lote.
-    destino = carpeta_declaracion(responsable, ruc, "2011")
+    destino = carpeta_declaracion(responsable, ruc, "2011", periodo)
     comprobante = submission.enviar_declaracion(page, ruc, periodo, destino, envio_autorizado=True,
                                                 evidencia=lambda: foto("04_confirmacion"))  # antes de Imprimir
     return f"comprobante serie {comprobante.name.split('_')[0]}"

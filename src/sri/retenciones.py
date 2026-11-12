@@ -177,7 +177,7 @@ def recorrer(ctx, page: Page, cid: str, periodo: tuple[int, int], hasta: str, cr
         return None
 
     # ENVIO REAL de retenciones: solo se llega aqui con --enviar, DRY_RUN=false y las confirmaciones escritas del lote.
-    comprobante = submission.enviar_declaracion(page, ruc, periodo, carpeta_declaracion(responsable, ruc, CODIGO),
+    comprobante = submission.enviar_declaracion(page, ruc, periodo, carpeta_declaracion(responsable, ruc, CODIGO, periodo),
                                                 envio_autorizado=True, impuesto=CODIGO,
                                                 evidencia=lambda: foto("04_confirmacion"))  # antes de Imprimir
     return f"comprobante serie {comprobante.name.split('_')[0]}"

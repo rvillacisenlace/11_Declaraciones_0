@@ -138,3 +138,17 @@ def test_el_mensaje_de_archivado_no_incluye_el_ruc(tmp_path, caplog):
     with caplog.at_level(logging.INFO):
         v.archivar(pdf, tmp_path / "ev", RUC, PERIODO, ahora=datetime(2026, 11, 6, 14, 30, 5), hoy=HOY)
     assert "Comprobante archivado" in caplog.text and RUC not in caplog.text
+
+
+def test_periodo_de_convierte_el_nombre_del_mes_en_numero():
+    meses = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE",
+             "NOVIEMBRE", "DICIEMBRE"]
+    for n, nombre in enumerate(meses, start=1):
+        c = v.parsear("\n".join(l.replace("OCTUBRE 2026", f"{nombre} 2027") for l in LINEAS))
+        assert v.periodo_de(c) == (2027, n)
+
+
+def test_periodo_de_rechaza_un_mes_desconocido():
+    c = v.parsear("\n".join(l.replace("OCTUBRE 2026", "OCTUBREX 2026") for l in LINEAS))
+    with pytest.raises(ComprobanteInvalido, match="periodo"):
+        v.periodo_de(c)

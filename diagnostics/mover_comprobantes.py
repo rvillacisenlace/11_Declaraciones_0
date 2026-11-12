@@ -1,5 +1,5 @@
 """Reorganiza lo ya guardado al arbol definitivo, usando el Control para saber el responsable de cada RUC:
-    Declaraciones/<Responsable>/<RUC>/<codigo - impuesto>/<serie>_<ruc>_<fecha>.pdf
+    Declaraciones/<Responsable>/<RUC>/<MM-AAAA>/<codigo - impuesto>/<serie>_<ruc>_<fecha>.pdf
     Evidencias/<Responsable>/<RUC>/<AAAA-MM>_<nombre original>.png              (con --capturas)
 Por defecto SOLO SIMULA. Con --aplicar mueve (nunca borra ni sobrescribe; solo quita carpetas que quedaron vacias).
 Busca en la carpeta antigua (--origen) y en lo que ya hay en Declaraciones y Evidencias. Lo que no se pueda ubicar con
@@ -78,7 +78,7 @@ def main(argv=None) -> int:
                     print(f"  SIN RESPONSABLE EN EL CONTROL, se deja: serie {c.serie} | RUC {enmascarar_ruc(c.ruc)}")
                     sin_ubicar += 1
                     continue
-                destino = carpeta_declaracion(directorio.por_ruc[c.ruc], c.ruc, codigo)
+                destino = carpeta_declaracion(directorio.por_ruc[c.ruc], c.ruc, codigo, verification.periodo_de(c))
             except ZeroError as e:
                 print(f"  NO SE PUDO LEER {pdf.name}: {e}")
                 ilegibles += 1
@@ -90,7 +90,8 @@ def main(argv=None) -> int:
                 print(f"  YA EXISTE en el destino, se deja: serie {c.serie}")
                 saltados += 1
                 continue
-            print(f"  serie {c.serie} | RUC {enmascarar_ruc(c.ruc)} -> {destino.parent.parent.name}\\{destino.parent.name[:4]}***\\{destino.name}")
+            print(f"  serie {c.serie} | RUC {enmascarar_ruc(c.ruc)} -> {destino.parent.parent.parent.name}\\{destino.parent.parent.name[:4]}***"
+                  f"\\{destino.parent.name}\\{destino.name}")
             if args.aplicar:
                 destino.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(pdf), str(final))

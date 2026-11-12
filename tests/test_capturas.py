@@ -88,7 +88,7 @@ def test_iva_la_confirmacion_se_captura_con_el_callback_y_el_comprobante_va_al_a
     main._flujo(None, object(), "A1", PERIODO, "contador", object(), object(), enviar=True, ruc=RUC, responsable="Resp1")
     assert [p[0] for p in pasos] == ["01_periodo", "02_preguntas", "03_resumen"]  # la 04 la toma submission, no el flujo
     args, kw = envios[0]
-    assert args[3] == carpeta_declaracion("Resp1", RUC, "2011")
+    assert args[3] == carpeta_declaracion("Resp1", RUC, "2011", PERIODO)
     kw["evidencia"]()
     assert pasos[-1] == ("04_confirmacion", "2011", carpeta_evidencia("Resp1", RUC))
 
@@ -130,7 +130,7 @@ def test_retenciones_la_confirmacion_se_captura_con_el_callback(monkeypatch):
     _preparar_ret(monkeypatch, pasos, envios)
     retenciones.recorrer(None, object(), "A1", PERIODO, "contador", object(), object(), enviar=True, ruc=RUC, responsable="Resp1")
     args, kw = envios[0]
-    assert args[3] == carpeta_declaracion("Resp1", RUC, "1031")
+    assert args[3] == carpeta_declaracion("Resp1", RUC, "1031", PERIODO)
     kw["evidencia"]()
     assert pasos[-1] == ("04_confirmacion", "1031", carpeta_evidencia("Resp1", RUC))
 

@@ -1,5 +1,5 @@
 """Donde se guarda cada cosa (todo cuelga de ZERO_DOCS):
-    Declaraciones/<Responsable>/<RUC>/<codigo - impuesto>/<serie>_<ruc>_<fecha>.pdf
+    Declaraciones/<Responsable>/<RUC>/<MM-AAAA>/<codigo - impuesto>/<serie>_<ruc>_<fecha>.pdf
     Evidencias/<Responsable>/<RUC>/<AAAA-MM>_<impuesto>_<paso>_<fecha>.png
 El responsable sale de la columna RESPONSABLE del Control. Los nombres con acentos usan escapes unicode para no
 depender de la codificacion con que se guarde este archivo."""
@@ -32,10 +32,16 @@ def nombre_carpeta(texto, vacio: str = SIN_RESPONSABLE) -> str:
     return t[:60].rstrip(" .")
 
 
-def carpeta_declaracion(responsable, ruc: str, codigo: str) -> Path:
+def nombre_periodo(periodo: tuple[int, int]) -> str:
+    """Carpeta del periodo declarado: MM-AAAA (p. ej. (2026, 10) -> '10-2026')."""
+    return f"{periodo[1]:02d}-{periodo[0]}"
+
+
+def carpeta_declaracion(responsable, ruc: str, codigo: str, periodo: tuple[int, int]) -> Path:
     if codigo not in IMPUESTOS:
         raise ConfigError(f"Impuesto desconocido: {codigo}")
-    return settings.DECLARACIONES_DIR / nombre_carpeta(responsable) / nombre_carpeta(ruc, SIN_RUC) / IMPUESTOS[codigo]
+    return (settings.DECLARACIONES_DIR / nombre_carpeta(responsable) / nombre_carpeta(ruc, SIN_RUC)
+            / nombre_periodo(periodo) / IMPUESTOS[codigo])
 
 
 def carpeta_evidencia(responsable, ruc: str) -> Path:

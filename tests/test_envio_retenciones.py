@@ -123,7 +123,7 @@ def test_con_enviar_se_llama_una_vez_autorizado_con_el_impuesto_y_la_carpeta_de_
     args, kw = llamadas[0]
     assert kw["envio_autorizado"] is True and kw["impuesto"] == "1031" and args[1] == RUC and callable(kw["evidencia"])
     assert Path(args[3]).name == "1031 - Declaraci\u00f3n de retenciones en la fuente"
-    assert Path(args[3]).parent == settings.DECLARACIONES_DIR / "Resp1" / RUC
+    assert Path(args[3]).parent == settings.DECLARACIONES_DIR / "Resp1" / RUC / "10-2026"
 
 
 def test_el_envio_ocurre_despues_de_todos_los_pasos_y_en_este_orden(monkeypatch):
