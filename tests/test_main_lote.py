@@ -51,7 +51,7 @@ def _estado(tmp_path, fid):
 def test_lote_procesa_todos_y_guarda_el_estado(entorno, monkeypatch):
     llamadas, tmp = entorno
     monkeypatch.setattr(main, "periodo_a_declarar", lambda: (2026, 10))
-    assert main.main(["--lote", "--hasta", "contador", "--pausa", "0"]) == 0
+    assert main.main(["--lote", "--impuesto", "2011", "--hasta", "contador", "--pausa", "0"]) == 0
     assert llamadas["flujo"] == ["A1", "A2", "A3"] and llamadas["creds"] == ["A1", "A2", "A3"]
     assert all(_estado(tmp, i) == "simulado" for i in ("A1", "A2", "A3"))
 

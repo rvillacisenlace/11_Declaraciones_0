@@ -19,7 +19,7 @@ Está hecho en Python con Playwright. Controla un Microsoft Edge real, sin captc
 ## Seguridad
 
 - `DRY_RUN=true` por defecto: no se envía nada.
-- `--enviar` exige `--lote`, `--max N`, `--hasta contador`, `DRY_RUN=false` y **dos confirmaciones escritas** (`SI` y luego `ENVIAR`).
+- `--enviar` exige `--lote`, `--hasta contador`, `DRY_RUN=false` y **dos confirmaciones escritas** (`SI` y luego `ENVIAR`), que muestran cuántas declaraciones se van a enviar.
 - El único clic en "Aceptar" (el que envía) está en `src/sri/submission.py`; una prueba automática lo vigila.
 - Antes de enviar se revisa que **interés y multa sean cero**; si no, no se envía y el fideicomiso pasa a revisión manual.
 - El comprobante descargado se verifica (RUC, periodo, impuesto, tipo ORIGINAL, "sin valor a pagar" y fecha de hoy). Si no coincide, no se archiva como válido.
@@ -99,38 +99,41 @@ El cruce con el Control es por RUC.
 Siempre en este orden: **prueba en seco** y después **envío real**.
 
 ```powershell
-# En seco: recorre todo el lote hasta los datos del contador, sin enviar
+# En seco: procesa TODO lo marcado con SI (IVA y retenciones) hasta los datos del contador, sin enviar
 py -m main --lote --hasta contador
 
-# Lo mismo para retenciones
+# Solo uno de los dos impuestos
+py -m main --lote --impuesto 2011 --hasta contador
 py -m main --lote --impuesto 1031 --hasta contador
 
 # Un solo fideicomiso, por ID del Control
 py -m main --contribuyente 123 --hasta contador
 
-# Envío real (con DRY_RUN=false en el .env): de uno en uno al principio
+# Envío real (con DRY_RUN=false en el .env): envía todo lo marcado con SI
+py -m main --lote --hasta contador --enviar
+
+# Opcional, para una primera prueba: limita el total de declaraciones de la ejecución
 py -m main --lote --hasta contador --enviar --max 1
-py -m main --lote --hasta contador --enviar --max 50
 ```
 
-El programa pide por teclado la contraseña del archivo de credenciales y la confirmación `SI`. Con `--enviar` pide además `ENVIAR`.
+El programa pide por teclado la contraseña del archivo de credenciales y la confirmación `SI`. Con `--enviar` pide además `ENVIAR`. Las pide una sola vez por ejecución, aunque procese IVA y retenciones.
 
 | Opción | Descripción |
 |---|---|
-| `--lote` | Procesa todos los fideicomisos marcados con `SI` |
+| `--lote` | Procesa todo lo marcado con `SI`, en una sola ejecución |
 | `--contribuyente ID` | Procesa uno solo (ID del Control) |
-| `--impuesto {2011,1031}` | `2011` = IVA (por defecto); `1031` = retenciones |
+| `--impuesto {2011,1031,todos}` | `2011` = IVA; `1031` = retenciones; `todos` = ambos. Por defecto: `todos` con `--lote` y `2011` con `--contribuyente` |
 | `--hasta` | Hasta dónde llegar: `periodo` (por defecto), `siguiente`, `valores`, `firma`, `contador` |
-| `--enviar` | **Envía de verdad.** Exige `--lote`, `--max N`, `--hasta contador` y `DRY_RUN=false` |
-| `--max N` | Máximo de fideicomisos en esta ejecución |
+| `--enviar` | **Envía de verdad.** Exige `--lote`, `--hasta contador` y `DRY_RUN=false` |
+| `--max N` | Opcional. Máximo de declaraciones en esta ejecución (total entre IVA y retenciones). Sin él se procesa todo lo marcado con `SI` |
 | `--pausa S` | Segundos entre fideicomisos |
-| `--incluir-revision` | Reintenta también los de `revision_manual`. **Solo en seco, nunca con `--enviar`** |
+| `--incluir-revision` | Reintenta también los de `revision_manual`. **Solo en seco**: el programa lo rechaza junto con `--enviar` |
 | `--credenciales {excel,consola}` | `excel` (por defecto): archivo cifrado. `consola`: por teclado (solo desarrollo) |
 | `--login {auto,manual}` | `auto` (por defecto): con las credenciales. `manual`: solo desarrollo |
 
 `--hasta` vale `periodo` por defecto, así que sin `--hasta contador` la corrida se detiene al elegir el periodo.
 
-**Durante una corrida:** cierre el Control en Excel (si está abierto no se puede anotar `DECLARADO`), no abra ni mueva ventanas encima de Edge y mantenga el equipo despierto. Cada declaración tarda cerca de un minuto.
+**Durante una corrida:** cierre el Control en Excel (si está abierto no se puede anotar `DECLARADO`), no abra ni mueva ventanas encima de Edge y mantenga el equipo despierto. Cada declaración tarda cerca de un minuto; una ejecución grande puede durar un buen rato.
 
 Códigos de salida: `0` correcto, `1` error controlado (configuración, datos, portal), `2` error inesperado, `3` lote detenido por un problema general.
 
@@ -173,8 +176,8 @@ Es seguro volver a lanzar un lote interrumpido.
 
 1. En el Control, ponga `SI` en `DECLARA_0` y/o `RETENCION_0` de los que toca declarar, y reinicie los `DECLARADO` del mes anterior.
 2. Verifique las claves en `Accesos` y la del contador.
-3. **En seco**, con `DRY_RUN=true`: `--lote --hasta contador` para IVA y luego con `--impuesto 1031`. Resuelva cualquier `error` antes de enviar.
-4. Pase a `DRY_RUN=false` y envíe, de uno en uno al principio (`--enviar --max 1`) y después el resto. IVA y retenciones por separado.
+3. **En seco**, con `DRY_RUN=true`: `--lote --hasta contador` (procesa IVA y retenciones). Resuelva cualquier `error` antes de enviar.
+4. Pase a `DRY_RUN=false` y envíe todo lo marcado con `--lote --hasta contador --enviar`. Si es la primera vez o hay dudas, haga antes una prueba con `--max 1`.
 5. Tras cada envío compruebe: el PDF en su carpeta, `declarado` en el log, `DECLARADO` en la celda del Control y la captura `04_confirmacion`.
 6. Vuelva a `DRY_RUN=true`.
 

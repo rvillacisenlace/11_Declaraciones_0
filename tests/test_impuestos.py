@@ -242,7 +242,7 @@ def test_el_lote_de_iva_sigue_leyendo_declara_0_y_registra_2011(entorno, monkeyp
     monkeypatch.setattr(main, "periodo_a_declarar", lambda: (2026, 10))
     _fake_open_context(monkeypatch)
     monkeypatch.setattr(main, "_flujo", lambda ctx, page, cid, per, hasta, cred, cont, **kw: llamadas["flujo"].append(cid))
-    assert main.main(["--lote", "--hasta", "periodo", "--pausa", "0"]) == 0
+    assert main.main(["--lote", "--impuesto", "2011", "--hasta", "periodo", "--pausa", "0"]) == 0
     assert marcas == ["declara_0"] and llamadas["flujo"] == ["A1"]
     con = sqlite3.connect(str(tmp / "execution_history.db"))
     assert con.execute("SELECT impuesto FROM declaraciones").fetchall() == [("2011",)]
@@ -257,7 +257,7 @@ def test_los_dos_impuestos_en_el_mismo_periodo_quedan_como_filas_separadas(entor
     _fake_open_context(monkeypatch)
     monkeypatch.setattr(retenciones, "recorrer", lambda *a, **k: None)
     monkeypatch.setattr(main, "_flujo", lambda *a, **k: None)
-    main.main(["--lote", "--hasta", "periodo", "--pausa", "0"])
+    main.main(["--lote", "--impuesto", "2011", "--hasta", "periodo", "--pausa", "0"])
     main.main(["--lote", "--impuesto", "1031", "--hasta", "periodo", "--pausa", "0"])
     con = sqlite3.connect(str(tmp / "execution_history.db"))
     assert con.execute("SELECT impuesto FROM declaraciones ORDER BY impuesto").fetchall() == [("1031",), ("2011",)]

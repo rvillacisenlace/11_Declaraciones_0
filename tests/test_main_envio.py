@@ -24,12 +24,11 @@ def _flujo_falso(llamadas):
 
 @pytest.mark.parametrize("argv", [
     ["--enviar"],
-    ["--enviar", "--lote", "--hasta", "contador"],
     ["--enviar", "--lote", "--max", "1"],
     ["--enviar", "--lote", "--max", "1", "--hasta", "firma"],
     ["--enviar", "--contribuyente", "5", "--max", "1", "--hasta", "contador"],
 ])
-def test_enviar_exige_lote_max_y_hasta_contador(argv):
+def test_enviar_exige_lote_y_hasta_contador(argv):
     with pytest.raises(SystemExit):
         main.main(argv)
 

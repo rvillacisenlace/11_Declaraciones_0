@@ -214,7 +214,7 @@ def _lote_con_ya_declarado(entorno, monkeypatch, extra=(), impuesto=None):
         return "comprobante serie 999" if kw.get("enviar") else None
     monkeypatch.setattr(main, "_flujo", flujo)
     monkeypatch.setattr(retenciones, "recorrer", flujo)
-    argv = ["--lote", "--hasta", "contador", "--pausa", "0", *extra] + (["--impuesto", impuesto] if impuesto else [])
+    argv = ["--lote", "--hasta", "contador", "--pausa", "0", *extra] + ["--impuesto", impuesto or "2011"]
     return main.main(argv), llamadas, tmp, marcados
 
 
@@ -253,7 +253,7 @@ def test_si_no_se_puede_escribir_el_control_el_lote_sigue(entorno, monkeypatch):
         if cid == "A1":
             raise AlreadyDeclared("ya hay una declaracion")
     monkeypatch.setattr(main, "_flujo", flujo)
-    assert main.main(["--lote", "--hasta", "contador", "--pausa", "0"]) == 0
+    assert main.main(["--lote", "--impuesto", "2011", "--hasta", "contador", "--pausa", "0"]) == 0
     assert _estados(tmp) == {"A1": "ya_declarado", "A2": "simulado", "A3": "simulado"}
 
 

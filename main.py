@@ -137,82 +137,110 @@ def _flujo(ctx, page, cid: str, periodo: tuple[int, int], hasta: str, cred, cont
                                                 evidencia=lambda: foto("04_confirmacion"))  # antes de Imprimir
     return f"comprobante serie {comprobante.name.split('_')[0]}"
 
+IMPUESTOS_LOTE = ("2011", "1031")
+NOMBRES_IMPUESTO = {"2011": "IVA", "1031": "retenciones"}
+
+
 def _ejecutar_lote(args, periodo: tuple[int, int]) -> int:
-    """Procesa todos los fideicomisos marcados con SI que pasan las validaciones y tienen credencial."""
+    """Procesa, en UNA sola ejecucion, TODO lo marcado con SI en el Control: IVA y retenciones (--impuesto todos, por
+    defecto) o solo uno de los dos. --max es opcional y limita el total de declaraciones de la ejecucion."""
     if args.enviar and settings.DRY_RUN:
         raise ZeroError("DRY_RUN=true en el .env: el envio real esta bloqueado")
-    r = leer_control(ruta_control(), _marca(args.impuesto))
+    impuestos = IMPUESTOS_LOTE if args.impuesto == "todos" else (args.impuesto,)
+    controles = {imp: leer_control(ruta_control(), _marca(imp)) for imp in impuestos}
     clave = getpass.getpass("Contrasena del archivo de credenciales: ")
-    listos, extra = cruzar_credenciales(r.pendientes, clave)
-    marcados = len(r.pendientes) + len(r.excluidos)
-    print(f"\nImpuesto: {args.impuesto} | Periodo: {nombre_mes(periodo[1])} {periodo[0]} | marcados SI: {marcados} | "
-          f"listos: {len(listos)} | excluidos: {len(r.excluidos) + len(extra)}")
-    for resp, n in sorted(Counter(f.responsable for f in listos).items()):
-        print(f"  {n:4d}  {resp}")
-    if not listos:
+    listos = {}
+    for imp in impuestos:
+        r = controles[imp]
+        listos[imp], extra = cruzar_credenciales(r.pendientes, clave)
+        marcados = len(r.pendientes) + len(r.excluidos)
+        print(f"\nImpuesto: {imp} ({NOMBRES_IMPUESTO[imp]}) | Periodo: {nombre_mes(periodo[1])} {periodo[0]} | "
+              f"marcados SI: {marcados} | listos: {len(listos[imp])} | excluidos: {len(r.excluidos) + len(extra)}")
+        for resp, n in sorted(Counter(f.responsable for f in listos[imp]).items()):
+            print(f"  {n:4d}  {resp}")
+    total = sum(len(v) for v in listos.values())
+    if not total:
         print("No hay fideicomisos para procesar.")
         return 0
-    if input(f"Confirma que los {len(listos)} fideicomisos NO tuvieron movimiento? Escriba SI: ").strip() != "SI":
+    detalle = ", ".join(f"{NOMBRES_IMPUESTO[i]}: {len(listos[i])}" for i in impuestos)
+    if input(f"Confirma que estas {total} declaraciones ({detalle}) son de fideicomisos que NO tuvieron movimiento? "
+             "Escriba SI: ").strip() != "SI":
         raise ZeroError("Sin validacion previa del lote")
-    log.info("validacion_previa_lote n=%d periodo=%s-%02d por=%s", len(listos), periodo[0], periodo[1], getpass.getuser())
+    log.info("validacion_previa_lote n=%d (%s) periodo=%s-%02d por=%s", total, detalle, periodo[0], periodo[1],
+             getpass.getuser())
     if args.enviar:
-        n = min(len(listos), args.max)
-        nombre = "retenciones" if args.impuesto == "1031" else "IVA"
-        if input(f"Se ENVIARAN hasta {n} declaraciones REALES de {nombre} al SRI y no se pueden deshacer. Escriba ENVIAR: ").strip() != "ENVIAR":
+        n = min(total, args.max) if args.max else total
+        if input(f"Se ENVIARAN hasta {n} declaraciones REALES al SRI ({detalle}) y no se pueden deshacer. "
+                 "Escriba ENVIAR: ").strip() != "ENVIAR":
             raise ZeroError("Envio no confirmado")
-        log.warning("envio_real_confirmado n=%d periodo=%s-%02d por=%s", n, periodo[0], periodo[1], getpass.getuser())
+        log.warning("envio_real_confirmado n=%d (%s) periodo=%s-%02d por=%s", n, detalle, periodo[0], periodo[1],
+                    getpass.getuser())
 
     contador = credential_repository.cargar_contador(clave) if args.hasta == "contador" else None
-    estado_ok = Estado.DECLARADO if args.enviar else (Estado.SIMULADO if args.hasta == "contador" else Estado.PARCIAL)
-   
-    def reflejar_en_control(f, estado):
-        """DECLARADO y YA_DECLARADO se anotan como DECLARADO en la celda del impuesto (solo si decia SI)."""
-        if ruta_control() is not None:
-            marcar_declarado(ruta_control(), f.fila, f.id, _marca(args.impuesto), settings.DATA_DIR / "respaldos")
-    
+    resultados, restante = [], args.max
     with Repositorio(settings.DATA_DIR / "execution_history.db") as repo:
         ejec = repo.iniciar_ejecucion(settings.VERSION, settings.DRY_RUN, f"{args.hasta} ({args.impuesto})",
                                       f"{periodo[0]}-{periodo[1]:02d}", getpass.getuser())
         with open_context() as ctx:
             page = ctx.pages[0] if ctx.pages else ctx.new_page()
+            for imp in impuestos:
+                if not listos[imp] or (restante is not None and restante < 1):
+                    continue
+                res = _procesar_impuesto(args, imp, listos[imp], periodo, repo, ejec, ctx, page, clave, contador, restante)
+                resultados.append((imp, res))
+                if restante is not None:
+                    restante -= res.procesados
+                if res.detenido:
+                    break  # un problema general (portal, fallos seguidos): no se sigue con el otro impuesto
+        repo.cerrar_ejecucion(ejec, " | ".join(f"{NOMBRES_IMPUESTO[i]}: {r.resumen()}" for i, r in resultados))
+    for imp, res in resultados:
+        print(f"\n{NOMBRES_IMPUESTO[imp]}: {res.resumen()}")
+    return 3 if any(r.detenido for _, r in resultados) else 0
 
-            def ejecutar(fid):
-                cred = credential_repository.cargar_contribuyente(fid.id, fid.ruc, clave)
-                extra = {"ruc": fid.ruc, "responsable": fid.responsable}
-                if args.enviar:
-                    extra["enviar"] = True
-                try:
-                    if args.impuesto == "1031":
-                        return retenciones.recorrer(ctx, page, fid.id, periodo, args.hasta, cred, contador, **extra)
-                    return _flujo(ctx, page, fid.id, periodo, args.hasta, cred, contador, **extra)
-                except AlreadyDeclared:
-                    raise  # resultado esperado: ya tiene su propia captura (ya_declarado); otra de error seria basura
-                except Exception:
-                    try:
-                        capturar(page, carpeta_evidencia(fid.responsable, fid.ruc), periodo, "error", args.impuesto)
-                    except Exception:
-                        log.warning("No se pudo capturar la pantalla de error")
-                    raise
 
-            res = procesar_lote(listos, periodo, repo, ejecutar, ejec, estado_ok=estado_ok, max_n=args.max,
-                                pausa_s=args.pausa, incluir_revision=args.incluir_revision, impuesto=args.impuesto,
-                                al_terminar=reflejar_en_control)
-        repo.cerrar_ejecucion(ejec, res.resumen())
-    print("\n" + res.resumen())
-    return 3 if res.detenido else 0
+def _procesar_impuesto(args, imp, listos, periodo, repo, ejec, ctx, page, clave, contador, max_n):
+    """Una pasada de la cola para un impuesto (misma base, mismo navegador y mismas claves que el resto de la ejecucion)."""
+    estado_ok = Estado.DECLARADO if args.enviar else (Estado.SIMULADO if args.hasta == "contador" else Estado.PARCIAL)
+
+    def reflejar_en_control(f, estado):
+        """DECLARADO y YA_DECLARADO se anotan como DECLARADO en la celda del impuesto (solo si decia SI)."""
+        if ruta_control() is not None:
+            marcar_declarado(ruta_control(), f.fila, f.id, _marca(imp), settings.DATA_DIR / "respaldos")
+
+    def ejecutar(fid):
+        cred = credential_repository.cargar_contribuyente(fid.id, fid.ruc, clave)
+        extra = {"ruc": fid.ruc, "responsable": fid.responsable}
+        if args.enviar:
+            extra["enviar"] = True
+        try:
+            if imp == "1031":
+                return retenciones.recorrer(ctx, page, fid.id, periodo, args.hasta, cred, contador, **extra)
+            return _flujo(ctx, page, fid.id, periodo, args.hasta, cred, contador, **extra)
+        except AlreadyDeclared:
+            raise  # resultado esperado: ya tiene su propia captura (ya_declarado); otra de error seria basura
+        except Exception:
+            try:
+                capturar(page, carpeta_evidencia(fid.responsable, fid.ruc), periodo, "error", imp)
+            except Exception:
+                log.warning("No se pudo capturar la pantalla de error")
+            raise
+
+    return procesar_lote(listos, periodo, repo, ejecutar, ejec, estado_ok=estado_ok, max_n=max_n, pausa_s=args.pausa,
+                         incluir_revision=args.incluir_revision, impuesto=imp, al_terminar=reflejar_en_control)
+
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="zero")
     ap.add_argument("--contribuyente", help="ID del Control (un solo fideicomiso)")
     ap.add_argument("--lote", action="store_true", help="procesa todos los fideicomisos marcados con SI")
-    ap.add_argument("--max", type=int, help="maximo de fideicomisos en esta ejecucion (lotes pequenos)")
+    ap.add_argument("--max", type=int, help="maximo de declaraciones en esta ejecucion (opcional: sin el, se procesa todo lo marcado con SI)")
     ap.add_argument("--pausa", type=float, default=float(os.getenv("PAUSA_ENTRE_S", "30")),
                     help="segundos de espera entre fideicomisos (se le suma una variacion al azar)")
     ap.add_argument("--incluir-revision", action="store_true", help="reintenta tambien los de revision manual")
     ap.add_argument("--enviar", action="store_true",
-                    help="ENVIA las declaraciones de verdad (exige --lote, --max N, --hasta contador y DRY_RUN=false)")
-    ap.add_argument("--impuesto", choices=("2011", "1031"), default="2011",
-                    help="2011 = IVA (por defecto); 1031 = retenciones")
+                    help="ENVIA las declaraciones de verdad (exige --lote, --hasta contador y DRY_RUN=false)")
+    ap.add_argument("--impuesto", choices=("2011", "1031", "todos"), default=None,
+                    help="2011 = IVA; 1031 = retenciones; todos = ambos. Por defecto: todos con --lote, 2011 con --contribuyente")
     ap.add_argument("--hasta", choices=("periodo", "siguiente", "valores", "firma", "contador"), default="periodo")
     ap.add_argument("--credenciales", choices=("excel", "consola"), default="excel",
                     help="excel: archivo cifrado (produccion); consola: se piden por teclado (solo desarrollo)")
@@ -227,9 +255,15 @@ def main(argv=None) -> int:
         ap.error("--lote requiere --login auto y --credenciales excel")
     if args.max is not None and args.max < 1:
         ap.error("--max debe ser 1 o mayor")
+    if args.impuesto is None:
+        args.impuesto = "todos" if args.lote else "2011"
+    if args.impuesto == "todos" and not args.lote:
+        ap.error("--impuesto todos solo funciona con --lote")
 
-    if args.enviar and not (args.lote and args.max and args.hasta == "contador"):
-        ap.error("--enviar requiere --lote, --max N y --hasta contador")
+    if args.enviar and not (args.lote and args.hasta == "contador"):
+        ap.error("--enviar requiere --lote y --hasta contador")
+    if args.enviar and args.incluir_revision:
+        ap.error("--incluir-revision no se puede usar con --enviar: esos fideicomisos pudieron haberse declarado ya")
 
     configurar_logging()
     periodo = periodo_a_declarar()
