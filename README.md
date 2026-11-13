@@ -7,7 +7,7 @@ Automatiza la presentación de declaraciones **en cero** ante el SRI (Ecuador) p
 
 Está hecho en Python con Playwright. Controla un Microsoft Edge real, sin captcha, y trabaja de a un fideicomiso a la vez.
 
-> **Aviso:** una declaración enviada no se deshace. Por eso el programa nunca envía por defecto y tiene varios candados (ver [Seguridad](#seguridad)). Pruebe siempre en seco antes de enviar.
+> **Aviso:** una declaración enviada no se deshace. Por eso el programa muestra cuántas va a enviar, pide una confirmación escrita y tiene varios candados (ver [Seguridad](#seguridad)). Pruebe con `--simular` cuando algo cambie.
 
 ## Qué hace
 
@@ -18,8 +18,10 @@ Está hecho en Python con Playwright. Controla un Microsoft Edge real, sin captc
 
 ## Seguridad
 
-- `DRY_RUN=true` por defecto: no se envía nada.
-- `--enviar` exige `--lote`, `--hasta contador`, `DRY_RUN=false` y **dos confirmaciones escritas** (`SI` y luego `ENVIAR`), que muestran cuántas declaraciones se van a enviar.
+- Con `DRY_RUN=true` (valor por defecto si no se define) no se envía nada: es el modo seguro para desarrollo. En producción el `.env` lleva `DRY_RUN=false` y cada ejecución completa **envía de verdad**.
+- Antes de enviar, el programa muestra cuántas declaraciones va a enviar de cada impuesto y pide **una confirmación escrita** (`SI`). Cualquier otra respuesta cancela la ejecución sin enviar nada.
+- Solo envía una ejecución completa del lote (`--hasta contador`, que es el valor por defecto del lote). Un recorrido parcial o un fideicomiso suelto (`--contribuyente`) nunca envían.
+- `--simular` prueba todo sin enviar, aunque `DRY_RUN=false`.
 - El único clic en "Aceptar" (el que envía) está en `src/sri/submission.py`; una prueba automática lo vigila.
 - Antes de enviar se revisa que **interés y multa sean cero**; si no, no se envía y el fideicomiso pasa a revisión manual.
 - El comprobante descargado se verifica (RUC, periodo, impuesto, tipo ORIGINAL, "sin valor a pagar" y fecha de hoy). Si no coincide, no se archiva como válido.
@@ -50,7 +52,7 @@ Copie `.env.example` a `%APPDATA%\Zero\.env` y complete los valores. Si define `
 | `SRI_LOGIN_URL` | Sí | URL de entrada al portal del SRI (ver `.env.example`) |
 | `CONTROL_XLSX` | Sí | Ruta del Control. Use `/` y sin comillas |
 | `CREDENCIALES_XLSX` | Con `--credenciales excel` (por defecto) | Ruta del archivo cifrado de credenciales |
-| `DRY_RUN` | No (`true`) | `false` solo mientras dura un envío real |
+| `DRY_RUN` | No (`true`) | `true` bloquea el envío (modo seguro para desarrollo). En producción debe ser `false` |
 | `ZERO_DOCS` | No | Carpeta raíz de `Declaraciones` y `Evidencias`. Sin ella, quedan dentro de la carpeta de trabajo |
 | `PAUSA_ENTRE_S` | No (`30`) | Segundos entre fideicomisos (se le suma una variación al azar) |
 | `DEFAULT_TIMEOUT_MS` | No (`30000`) | Espera máxima por elemento de la página |
@@ -96,42 +98,43 @@ El cruce con el Control es por RUC.
 
 ## Uso
 
-Siempre en este orden: **prueba en seco** y después **envío real**.
+En producción, `py -m main` **envía de verdad**. Para probar sin enviar nada, use `--simular`.
 
 ```powershell
-# En seco: procesa TODO lo marcado con SI (IVA y retenciones) hasta los datos del contador, sin enviar
-py -m main --lote --hasta contador
+# Uso normal (producción, con DRY_RUN=false): procesa TODO lo marcado con SI (IVA y retenciones) y ENVÍA
+py -m main
+
+# Probar sin enviar nada: llega hasta los datos del contador
+py -m main --simular
 
 # Solo uno de los dos impuestos
-py -m main --lote --impuesto 2011 --hasta contador
-py -m main --lote --impuesto 1031 --hasta contador
+py -m main --impuesto 2011
+py -m main --impuesto 1031
 
-# Un solo fideicomiso, por ID del Control
-py -m main --contribuyente 123 --hasta contador
+# Un solo fideicomiso, por ID del Control (diagnóstico: nunca envía)
+py -m main --contribuyente 123
 
-# Envío real (con DRY_RUN=false en el .env): envía todo lo marcado con SI
-py -m main --lote --hasta contador --enviar
-
-# Opcional, para una primera prueba: limita el total de declaraciones de la ejecución
-py -m main --lote --hasta contador --enviar --max 1
+# Opcional, para una primera prueba real: limita el total de declaraciones de la ejecución
+py -m main --max 1
 ```
 
-El programa pide por teclado la contraseña del archivo de credenciales y la confirmación `SI`. Con `--enviar` pide además `ENVIAR`. Las pide una sola vez por ejecución, aunque procese IVA y retenciones.
+El programa pide por teclado la contraseña del archivo de credenciales y una confirmación `SI`. En envío real, el mensaje avisa de que las declaraciones son REALES. Las pide una sola vez por ejecución, aunque procese IVA y retenciones.
 
 | Opción | Descripción |
 |---|---|
-| `--lote` | Procesa todo lo marcado con `SI`, en una sola ejecución |
+| `--lote` | Procesa todo lo marcado con `SI`. Es lo que se hace por defecto si no se indica `--contribuyente` |
 | `--contribuyente ID` | Procesa uno solo (ID del Control) |
 | `--impuesto {2011,1031,todos}` | `2011` = IVA; `1031` = retenciones; `todos` = ambos. Por defecto: `todos` con `--lote` y `2011` con `--contribuyente` |
-| `--hasta` | Hasta dónde llegar: `periodo` (por defecto), `siguiente`, `valores`, `firma`, `contador` |
-| `--enviar` | **Envía de verdad.** Exige `--lote`, `--hasta contador` y `DRY_RUN=false` |
+| `--hasta` | Hasta dónde llegar: `periodo`, `siguiente`, `valores`, `firma`, `contador`. Por defecto: `contador` con el lote y `periodo` con `--contribuyente` |
+| `--simular` | Prueba sin enviar nada, aunque `DRY_RUN=false` |
+| `--enviar` | Fuerza el envío real. Con `DRY_RUN=false` ya es lo normal; con `DRY_RUN=true` el programa lo bloquea |
 | `--max N` | Opcional. Máximo de declaraciones en esta ejecución (total entre IVA y retenciones). Sin él se procesa todo lo marcado con `SI` |
 | `--pausa S` | Segundos entre fideicomisos |
-| `--incluir-revision` | Reintenta también los de `revision_manual`. **Solo en seco**: el programa lo rechaza junto con `--enviar` |
+| `--incluir-revision` | Reintenta también los de `revision_manual`. **Solo con `--simular`** (o `DRY_RUN=true`): el programa lo rechaza cuando va a enviar |
 | `--credenciales {excel,consola}` | `excel` (por defecto): archivo cifrado. `consola`: por teclado (solo desarrollo) |
 | `--login {auto,manual}` | `auto` (por defecto): con las credenciales. `manual`: solo desarrollo |
 
-`--hasta` vale `periodo` por defecto, así que sin `--hasta contador` la corrida se detiene al elegir el periodo.
+Un recorrido parcial (`--hasta` distinto de `contador`) nunca envía.
 
 **Durante una corrida:** cierre el Control en Excel (si está abierto no se puede anotar `DECLARADO`), no abra ni mueva ventanas encima de Edge y mantenga el equipo despierto. Cada declaración tarda cerca de un minuto; una ejecución grande puede durar un buen rato.
 
@@ -142,7 +145,7 @@ Códigos de salida: `0` correcto, `1` error controlado (configuración, datos, p
 ```text
 <ZERO_DOCS>/
 ├── Declaraciones/<Responsable>/<RUC>/<MM-AAAA>/<código - impuesto>/<serie>_<ruc>_<fecha>.pdf
-└── Evidencias/<Responsable>/<RUC>/<AAAA-MM>_<impuesto>_<paso>_<fecha>_<hora>.png
+└── Evidencias/<Responsable>/<RUC>/<MM-AAAA>/<código - impuesto>/<AAAA-MM>_<impuesto>_<paso>_<fecha>_<hora>.png
 
 %APPDATA%\Zero\
 ├── .env
@@ -176,10 +179,10 @@ Es seguro volver a lanzar un lote interrumpido.
 
 1. En el Control, ponga `SI` en `DECLARA_0` y/o `RETENCION_0` de los que toca declarar, y reinicie los `DECLARADO` del mes anterior.
 2. Verifique las claves en `Accesos` y la del contador.
-3. **En seco**, con `DRY_RUN=true`: `--lote --hasta contador` (procesa IVA y retenciones). Resuelva cualquier `error` antes de enviar.
-4. Pase a `DRY_RUN=false` y envíe todo lo marcado con `--lote --hasta contador --enviar`. Si es la primera vez o hay dudas, haga antes una prueba con `--max 1`.
+3. **Pruebe** con `py -m main --simular` (procesa IVA y retenciones sin enviar). Resuelva cualquier `error` antes de enviar.
+4. Envíe todo lo marcado con `py -m main` (con `DRY_RUN=false`). Si es la primera vez o hay dudas, haga antes una prueba real con `--max 1`.
 5. Tras cada envío compruebe: el PDF en su carpeta, `declarado` en el log, `DECLARADO` en la celda del Control y la captura `04_confirmacion`.
-6. Vuelva a `DRY_RUN=true`.
+6. Resuelva los `error` y `revision_manual` del resumen final antes del mes siguiente.
 
 ## Diagnósticos
 

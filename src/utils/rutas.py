@@ -1,6 +1,6 @@
 """Donde se guarda cada cosa (todo cuelga de ZERO_DOCS):
     Declaraciones/<Responsable>/<RUC>/<MM-AAAA>/<codigo - impuesto>/<serie>_<ruc>_<fecha>.pdf
-    Evidencias/<Responsable>/<RUC>/<AAAA-MM>_<impuesto>_<paso>_<fecha>.png
+    Evidencias/<Responsable>/<RUC>/<MM-AAAA>/<codigo - impuesto>/<AAAA-MM>_<impuesto>_<paso>_<fecha>_<hora>.png
 El responsable sale de la columna RESPONSABLE del Control. Los nombres con acentos usan escapes unicode para no
 depender de la codificacion con que se guarde este archivo."""
 import re
@@ -44,5 +44,8 @@ def carpeta_declaracion(responsable, ruc: str, codigo: str, periodo: tuple[int, 
             / nombre_periodo(periodo) / IMPUESTOS[codigo])
 
 
-def carpeta_evidencia(responsable, ruc: str) -> Path:
-    return settings.EVIDENCE_DIR / nombre_carpeta(responsable) / nombre_carpeta(ruc, SIN_RUC)
+def carpeta_evidencia(responsable, ruc: str, periodo: tuple[int, int], codigo: str) -> Path:
+    if codigo not in IMPUESTOS:
+        raise ConfigError(f"Impuesto desconocido: {codigo}")
+    return (settings.EVIDENCE_DIR / nombre_carpeta(responsable) / nombre_carpeta(ruc, SIN_RUC)
+            / nombre_periodo(periodo) / IMPUESTOS[codigo])

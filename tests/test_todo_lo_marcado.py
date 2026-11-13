@@ -87,23 +87,23 @@ def test_el_envio_real_no_exige_max_y_envia_todo_lo_marcado_de_los_dos_impuestos
     assert sorted(anotadas) == [(2, "A1", "declara_0"), (3, "A2", "declara_0"), (4, "B1", "retencion_0"), (5, "B2", "retencion_0")]
 
 
-def test_se_pide_una_sola_vez_la_clave_y_cada_confirmacion_con_el_conteo_de_los_dos_impuestos(entorno, monkeypatch):
+def test_se_pide_una_sola_vez_la_clave_y_una_sola_confirmacion_con_el_conteo_de_los_dos_impuestos(entorno, monkeypatch):
     _preparar(monkeypatch)
     monkeypatch.setattr(settings, "DRY_RUN", False)
     claves, preguntas = [], []
     monkeypatch.setattr(main.getpass, "getpass", lambda *_: claves.append(1) or "maestra")
-    respuestas = iter(["SI", "ENVIAR"])
+    respuestas = iter(["SI"])
     monkeypatch.setattr("builtins.input", lambda p="": preguntas.append(p) or next(respuestas))
     assert main.main(["--lote", "--hasta", "contador", "--enviar", "--pausa", "0"]) == 0
-    assert len(claves) == 1 and len(preguntas) == 2
-    assert "4 declaraciones" in preguntas[0] and "IVA: 2" in preguntas[0] and "retenciones: 2" in preguntas[0]
-    assert "ENVIARAN hasta 4" in preguntas[1] and "IVA: 2" in preguntas[1] and "retenciones: 2" in preguntas[1]
+    assert len(claves) == 1 and len(preguntas) == 1
+    assert "ENVIARAN hasta 4" in preguntas[0] and "REALES" in preguntas[0] and "NO tuvieron movimiento" in preguntas[0]
+    assert "IVA: 2" in preguntas[0] and "retenciones: 2" in preguntas[0]
 
 
 def test_sin_la_confirmacion_escrita_no_se_envia_nada_de_ninguno_de_los_dos(entorno, monkeypatch):
     _, iva, ret = _preparar(monkeypatch)
     monkeypatch.setattr(settings, "DRY_RUN", False)
-    respuestas = iter(["SI", "enviar"])
+    respuestas = iter(["enviar"])
     monkeypatch.setattr("builtins.input", lambda *_: next(respuestas))
     assert main.main(["--lote", "--hasta", "contador", "--enviar", "--pausa", "0"]) == 1
     assert iva == [] and ret == []

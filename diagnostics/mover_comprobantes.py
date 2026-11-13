@@ -1,6 +1,6 @@
 """Reorganiza lo ya guardado al arbol definitivo, usando el Control para saber el responsable de cada RUC:
     Declaraciones/<Responsable>/<RUC>/<MM-AAAA>/<codigo - impuesto>/<serie>_<ruc>_<fecha>.pdf
-    Evidencias/<Responsable>/<RUC>/<AAAA-MM>_<nombre original>.png              (con --capturas)
+    Evidencias/<Responsable>/<RUC>/<MM-AAAA>/<codigo - impuesto>/<AAAA-MM>_<codigo>_<paso>_<fecha>_<hora>.png   (con --capturas)
 Por defecto SOLO SIMULA. Con --aplicar mueve (nunca borra ni sobrescribe; solo quita carpetas que quedaron vacias).
 Busca en la carpeta antigua (--origen) y en lo que ya hay en Declaraciones y Evidencias. Lo que no se pueda ubicar con
 certeza (RUC o ID que no estan en el Control, o que aparecen repetidos con datos distintos) se deja donde esta y se
@@ -21,6 +21,8 @@ from src.utils.validators import enmascarar_ruc
 
 PATRON = re.compile(r"^\d{8,}_\d{13}_\d{14}\.pdf$")  # serie_ruc_AAAAMMDDHHMMSS.pdf (no toca los RECHAZADO_*)
 PERIODO = re.compile(r"^\d{4}-\d{2}$")
+# Nombres de captura anteriores: AAAA-MM_<codigo>_<resto> (actual), AAAA-MM_ret_<resto> (retenciones) y AAAA-MM_<resto> (IVA).
+NOMBRE_PLANO = re.compile(r"^(?P<anio>\d{4})-(?P<mes>\d{2})_(?:(?P<codigo>2011|1031)_|(?P<ret>ret_))?(?P<resto>.+)\.png$")
 
 
 def _raices(*candidatas: Path) -> list[Path]:
@@ -103,13 +105,23 @@ def main(argv=None) -> int:
         for raiz in _raices(origen, settings.EVIDENCE_DIR):
             for png in sorted(raiz.rglob("*.png")):
                 partes = png.relative_to(raiz).parts
-                if len(partes) != 3 or not PERIODO.match(partes[1]):
-                    continue  # solo el esquema antiguo: <ID>/<AAAA-MM>/<archivo>.png
-                if partes[0] not in directorio.por_id:
-                    capturas_sin_ubicar += 1
+                if len(partes) != 3:
+                    continue  # el esquema actual (Responsable/RUC/MM-AAAA/impuesto/archivo) no se toca
+                if PERIODO.match(partes[1]):  # esquema antiguo: <ID>/<AAAA-MM>/<archivo>
+                    if partes[0] not in directorio.por_id:
+                        capturas_sin_ubicar += 1
+                        continue
+                    ruc, responsable = directorio.por_id[partes[0]]
+                    nombre = f"{partes[1]}_{png.name}"
+                else:  # esquema plano: <Responsable>/<RUC>/<archivo>
+                    responsable, ruc, nombre = partes
+                m = NOMBRE_PLANO.match(nombre)
+                if not m:
                     continue
-                ruc, responsable = directorio.por_id[partes[0]]
-                final = carpeta_evidencia(responsable, ruc) / f"{partes[1]}_{png.name}"
+                codigo = m["codigo"] or ("1031" if m["ret"] else "2011")
+                periodo_png = (int(m["anio"]), int(m["mes"]))
+                final = (carpeta_evidencia(responsable, ruc, periodo_png, codigo)
+                         / f"{m['anio']}-{m['mes']}_{codigo}_{m['resto']}.png")
                 if final.exists():
                     continue
                 if args.aplicar:

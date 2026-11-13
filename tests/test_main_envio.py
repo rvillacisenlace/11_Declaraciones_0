@@ -23,8 +23,6 @@ def _flujo_falso(llamadas):
 
 
 @pytest.mark.parametrize("argv", [
-    ["--enviar"],
-    ["--enviar", "--lote", "--max", "1"],
     ["--enviar", "--lote", "--max", "1", "--hasta", "firma"],
     ["--enviar", "--contribuyente", "5", "--max", "1", "--hasta", "contador"],
 ])
@@ -42,12 +40,12 @@ def test_con_dry_run_el_envio_esta_bloqueado_y_no_se_hace_nada(entorno, monkeypa
     assert llamadas["flujo"] == [] and llamadas["creds"] == []
 
 
-@pytest.mark.parametrize("segunda", ["", "enviar", "SI", "no"])
-def test_sin_la_segunda_confirmacion_exacta_no_se_envia(entorno, monkeypatch, segunda):
+@pytest.mark.parametrize("respuesta", ["", "enviar", "si", "no", "ENVIAR"])
+def test_sin_la_confirmacion_exacta_no_se_envia(entorno, monkeypatch, respuesta):
     llamadas, _ = entorno
     monkeypatch.setattr(settings, "DRY_RUN", False)
     monkeypatch.setattr(main, "_flujo", _flujo_falso(llamadas["flujo"]))
-    _teclado(monkeypatch, ["SI", segunda])
+    _teclado(monkeypatch, [respuesta])
     assert main.main(["--lote", "--enviar", "--max", "1", "--hasta", "contador"]) == 1
     assert llamadas["flujo"] == []
 

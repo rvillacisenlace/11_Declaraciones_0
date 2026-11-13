@@ -171,13 +171,13 @@ def test_con_dry_run_el_envio_de_retenciones_esta_bloqueado(entorno, monkeypatch
     assert llamadas["flujo"] == [] and llamadas["creds"] == []
 
 
-@pytest.mark.parametrize("segunda", ["", "enviar", "SI", "no"])
-def test_sin_la_segunda_confirmacion_exacta_no_se_envian_retenciones(entorno, monkeypatch, segunda):
+@pytest.mark.parametrize("respuesta", ["", "enviar", "si", "no", "ENVIAR"])
+def test_sin_la_confirmacion_exacta_no_se_envian_retenciones(entorno, monkeypatch, respuesta):
     llamadas, _ = entorno
     monkeypatch.setattr(settings, "DRY_RUN", False)
     _abrir(monkeypatch)
     monkeypatch.setattr(retenciones, "recorrer", _recorrer_falso(llamadas["flujo"]))
-    _teclado(monkeypatch, ["SI", segunda])
+    _teclado(monkeypatch, [respuesta])
     assert main.main(["--lote", "--impuesto", "1031", "--enviar", "--max", "1", "--hasta", "contador"]) == 1
     assert llamadas["flujo"] == []
 

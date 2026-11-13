@@ -170,55 +170,110 @@ def test_un_periodo_que_no_se_reconoce_se_informa_y_no_se_mueve(tmp_path, monkey
 
 
 # ------------------------------------------------------------------ capturas
-def _captura_vieja(raiz, id_="142", nombre="ret_04_pregunta_no_20261110_122653.png"):
+def _evid(tmp_path, *partes):
+    return tmp_path / "Zero" / "Evidencias" / Path(*partes)
+
+
+def _por_id(raiz, id_="142", nombre="ret_04_pregunta_no_20261110_122653.png"):
+    """Esquema mas antiguo: <ID>/<AAAA-MM>/<archivo>."""
     carpeta = raiz / id_ / "2026-10"
     carpeta.mkdir(parents=True)
     (carpeta / nombre).write_bytes(b"png")
     return carpeta / nombre
 
 
+def _plana(tmp_path, nombre, resp=RESP):
+    """Esquema anterior: <Responsable>/<RUC>/<archivo>."""
+    carpeta = _evid(tmp_path, resp, RUC)
+    carpeta.mkdir(parents=True, exist_ok=True)
+    (carpeta / nombre).write_bytes(b"png")
+    return carpeta / nombre
+
+
 def test_las_capturas_solo_se_mueven_con_la_opcion(tmp_path, monkeypatch):
     antiguo = _entorno(tmp_path, monkeypatch)
-    png = _captura_vieja(antiguo)
+    png = _por_id(antiguo)
+    plana = _plana(tmp_path, "2026-10_2011_01_periodo_20261112_153114.png")
     mv.main(["--origen", str(antiguo), "--aplicar"])
-    assert png.exists()
+    assert png.exists() and plana.exists()
 
 
-def test_las_capturas_pasan_a_evidencias_por_responsable_y_ruc_con_el_periodo_en_el_nombre(tmp_path, monkeypatch):
+def test_una_captura_del_esquema_antiguo_va_al_periodo_y_al_impuesto_que_le_corresponden(tmp_path, monkeypatch):
     antiguo = _entorno(tmp_path, monkeypatch)
-    vieja = _captura_vieja(antiguo)
-    en_evidencias = _captura_vieja(tmp_path / "Zero" / "Evidencias", nombre="07_declarada_20261109_085627.png")
+    ret = _por_id(antiguo)  # ret_... -> retenciones
+    iva = _por_id(tmp_path / "Zero" / "Evidencias", nombre="07_declarada_20261109_085627.png")  # sin ret_ -> IVA
     mv.main(["--origen", str(antiguo), "--aplicar", "--capturas"])
-    base = tmp_path / "Zero" / "Evidencias" / RESP / RUC
-    assert (base / f"2026-10_{vieja.name}").exists() and (base / f"2026-10_{en_evidencias.name}").exists()
-    assert not vieja.exists() and not en_evidencias.exists()
-    assert not (tmp_path / "Zero" / "Evidencias" / "142").exists()  # la carpeta antigua por ID quedo vacia y se quita
+    assert _evid(tmp_path, RESP, RUC, "10-2026", RET, "2026-10_1031_04_pregunta_no_20261110_122653.png").exists()
+    assert _evid(tmp_path, RESP, RUC, "10-2026", IVA, "2026-10_2011_07_declarada_20261109_085627.png").exists()
+    assert not ret.exists() and not iva.exists()
+    assert not _evid(tmp_path, "142").exists()  # la carpeta antigua por ID quedo vacia y se quita
+
+
+def test_una_captura_plana_con_codigo_de_impuesto_se_acomoda_en_su_carpeta_sin_cambiar_de_nombre(tmp_path, monkeypatch):
+    antiguo = _entorno(tmp_path, monkeypatch)
+    nombre = "2026-10_2011_01_periodo_20261112_153114.png"
+    png = _plana(tmp_path, nombre)
+    mv.main(["--origen", str(antiguo), "--aplicar", "--capturas"])
+    assert _evid(tmp_path, RESP, RUC, "10-2026", IVA, nombre).exists() and not png.exists()
+
+
+def test_una_captura_plana_de_la_primera_migracion_sin_codigo_se_normaliza(tmp_path, monkeypatch):
+    antiguo = _entorno(tmp_path, monkeypatch)
+    _plana(tmp_path, "2026-10_ret_04_pregunta_no_20261110_122653.png")
+    _plana(tmp_path, "2026-10_07_declarada_20261109_085627.png")
+    mv.main(["--origen", str(antiguo), "--aplicar", "--capturas"])
+    assert _evid(tmp_path, RESP, RUC, "10-2026", RET, "2026-10_1031_04_pregunta_no_20261110_122653.png").exists()
+    assert _evid(tmp_path, RESP, RUC, "10-2026", IVA, "2026-10_2011_07_declarada_20261109_085627.png").exists()
+
+
+def test_cada_captura_va_a_la_carpeta_de_su_propio_periodo(tmp_path, monkeypatch):
+    antiguo = _entorno(tmp_path, monkeypatch)
+    _plana(tmp_path, "2027-01_1031_02_preguntas_20270206_101010.png")
+    mv.main(["--origen", str(antiguo), "--aplicar", "--capturas"])
+    assert _evid(tmp_path, RESP, RUC, "01-2027", RET, "2027-01_1031_02_preguntas_20270206_101010.png").exists()
 
 
 def test_una_captura_de_un_id_que_no_esta_en_el_control_se_deja(tmp_path, monkeypatch, capsys):
     antiguo = _entorno(tmp_path, monkeypatch)
-    png = _captura_vieja(antiguo, id_="R1")
+    png = _por_id(antiguo, id_="R1")
     mv.main(["--origen", str(antiguo), "--aplicar", "--capturas"])
     assert png.exists() and "no estan en el Control" in capsys.readouterr().out
 
 
-def test_las_capturas_que_ya_estan_en_el_esquema_nuevo_no_se_tocan(tmp_path, monkeypatch):
+def test_las_capturas_que_ya_estan_en_el_esquema_actual_no_se_tocan(tmp_path, monkeypatch):
     antiguo = _entorno(tmp_path, monkeypatch)
-    nueva = tmp_path / "Zero" / "Evidencias" / RESP / RUC / "2026-10_1031_02_preguntas_20261110_152543.png"
-    nueva.parent.mkdir(parents=True)
-    nueva.write_bytes(b"png")
+    ya = _evid(tmp_path, RESP, RUC, "10-2026", IVA, "2026-10_2011_01_periodo_20261112_153114.png")
+    ya.parent.mkdir(parents=True)
+    ya.write_bytes(b"png")
     mv.main(["--origen", str(antiguo), "--aplicar", "--capturas"])
-    assert nueva.exists()
+    assert ya.exists()
+
+
+def test_el_movimiento_de_capturas_es_idempotente(tmp_path, monkeypatch, capsys):
+    antiguo = _entorno(tmp_path, monkeypatch)
+    _plana(tmp_path, "2026-10_2011_01_periodo_20261112_153114.png")
+    mv.main(["--origen", str(antiguo), "--aplicar", "--capturas"])
+    capsys.readouterr()
+    assert mv.main(["--origen", str(antiguo), "--aplicar", "--capturas"]) == 0
+    assert "capturas: 0" in capsys.readouterr().out
 
 
 def test_no_sobrescribe_una_captura_existente(tmp_path, monkeypatch):
     antiguo = _entorno(tmp_path, monkeypatch)
-    vieja = _captura_vieja(antiguo)
-    destino = tmp_path / "Zero" / "Evidencias" / RESP / RUC / f"2026-10_{vieja.name}"
+    nombre = "2026-10_2011_01_periodo_20261112_153114.png"
+    origen = _plana(tmp_path, nombre)
+    destino = _evid(tmp_path, RESP, RUC, "10-2026", IVA, nombre)
     destino.parent.mkdir(parents=True)
     destino.write_bytes(b"otra")
     mv.main(["--origen", str(antiguo), "--aplicar", "--capturas"])
-    assert destino.read_bytes() == b"otra" and vieja.exists()
+    assert destino.read_bytes() == b"otra" and origen.exists()
+
+
+def test_un_archivo_con_nombre_desconocido_se_deja_donde_esta(tmp_path, monkeypatch):
+    antiguo = _entorno(tmp_path, monkeypatch)
+    raro = _plana(tmp_path, "foto.png")
+    mv.main(["--origen", str(antiguo), "--aplicar", "--capturas"])
+    assert raro.exists()
 
 
 def test_origen_inexistente_o_control_ilegible(tmp_path, monkeypatch):

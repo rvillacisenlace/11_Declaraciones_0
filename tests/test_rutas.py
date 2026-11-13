@@ -17,7 +17,9 @@ def test_arbol_de_declaraciones_por_responsable(tmp_path, monkeypatch):
 
 def test_arbol_de_evidencias_por_responsable(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "EVIDENCE_DIR", tmp_path / "Evidencias")
-    assert carpeta_evidencia("Justin", RUC) == tmp_path / "Evidencias" / "Justin" / RUC
+    base = tmp_path / "Evidencias" / "Justin" / RUC / "10-2026"
+    assert carpeta_evidencia("Justin", RUC, P, "2011") == base / "2011 - Declaración de IVA"
+    assert carpeta_evidencia("Justin", RUC, P, "1031") == base / "1031 - Declaración de retenciones en la fuente"
 
 
 def test_impuesto_desconocido(tmp_path, monkeypatch):
@@ -57,7 +59,7 @@ def test_nombre_largo_se_recorta():
 
 def test_sin_ruc_se_usa_un_nombre_claro(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "EVIDENCE_DIR", tmp_path)
-    assert carpeta_evidencia("Justin", "") == tmp_path / "Justin" / "SIN RUC"
+    assert carpeta_evidencia("Justin", "", P, "2011") == tmp_path / "Justin" / "SIN RUC" / "10-2026" / "2011 - Declaración de IVA"
 
 
 @pytest.mark.parametrize("periodo,esperado", [((2026, 10), "10-2026"), ((2027, 1), "01-2027"), ((2026, 12), "12-2026")])
@@ -71,3 +73,19 @@ def test_cada_periodo_tiene_su_propia_carpeta(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "DECLARACIONES_DIR", tmp_path)
     assert carpeta_declaracion("Justin", RUC, "2011", (2026, 10)) != carpeta_declaracion("Justin", RUC, "2011", (2026, 11))
     assert carpeta_declaracion("Justin", RUC, "2011", (2026, 10)) != carpeta_declaracion("Justin", RUC, "2011", (2027, 10))
+
+
+def test_la_evidencia_y_la_declaracion_comparten_la_misma_estructura(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "DECLARACIONES_DIR", tmp_path / "Declaraciones")
+    monkeypatch.setattr(settings, "EVIDENCE_DIR", tmp_path / "Evidencias")
+    for codigo in ("2011", "1031"):
+        for periodo in ((2026, 10), (2027, 1)):
+            d = carpeta_declaracion("Justin", RUC, codigo, periodo).relative_to(tmp_path / "Declaraciones")
+            e = carpeta_evidencia("Justin", RUC, periodo, codigo).relative_to(tmp_path / "Evidencias")
+            assert d == e  # Responsable/RUC/MM-AAAA/impuesto
+
+
+def test_impuesto_desconocido_en_la_evidencia(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "EVIDENCE_DIR", tmp_path)
+    with pytest.raises(ConfigError, match="desconocido"):
+        carpeta_evidencia("Justin", RUC, P, "9999")

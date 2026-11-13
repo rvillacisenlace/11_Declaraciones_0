@@ -85,7 +85,7 @@ def test_portal_cambiado_detiene_el_lote_y_devuelve_codigo_3(entorno, monkeypatc
 
 
 @pytest.mark.parametrize("argv", [
-    [], ["--lote", "--contribuyente", "5"], ["--lote", "--login", "manual"],
+    ["--lote", "--contribuyente", "5"], ["--lote", "--login", "manual"],
     ["--lote", "--credenciales", "consola"], ["--lote", "--max", "0"]])
 def test_combinaciones_de_argumentos_invalidas(argv):
     with pytest.raises(SystemExit):

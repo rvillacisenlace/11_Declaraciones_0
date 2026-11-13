@@ -138,7 +138,7 @@ def recorrer(ctx, page: Page, cid: str, periodo: tuple[int, int], hasta: str, cr
              enviar: bool = False, ruc: str | None = None, responsable: str | None = None) -> str | None:
     """Recorrido de retenciones. Nunca pulsa Aceptar por si mismo; el envio, si se ordena, lo hace submission.
     Capturas: una por pantalla, justo antes de cada clic (Siguiente, Siguiente, Aceptar, Imprimir)."""
-    evid = carpeta_evidencia(responsable, ruc or cid)
+    evid = carpeta_evidencia(responsable, ruc or cid, periodo, CODIGO)
 
     def foto(paso: str) -> None:
         capturar(page, evid, periodo, paso, CODIGO)

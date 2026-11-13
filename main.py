@@ -93,7 +93,7 @@ def _credenciales_por_consola(cid: str, login: str, con_contador: bool):
 def _flujo(ctx, page, cid: str, periodo: tuple[int, int], hasta: str, cred, contador, *, enviar: bool = False,
            ruc: str | None = None, responsable: str | None = None) -> str | None:
     """Recorrido del IVA. Capturas: una por pantalla, justo antes de cada clic (Siguiente, Siguiente, Aceptar, Imprimir)."""
-    evid = carpeta_evidencia(responsable, ruc or cid)
+    evid = carpeta_evidencia(responsable, ruc or cid, periodo, "2011")
 
     def foto(paso: str) -> None:
         capturar(page, evid, periodo, paso, "2011")
@@ -163,16 +163,18 @@ def _ejecutar_lote(args, periodo: tuple[int, int]) -> int:
         print("No hay fideicomisos para procesar.")
         return 0
     detalle = ", ".join(f"{NOMBRES_IMPUESTO[i]}: {len(listos[i])}" for i in impuestos)
-    if input(f"Confirma que estas {total} declaraciones ({detalle}) son de fideicomisos que NO tuvieron movimiento? "
-             "Escriba SI: ").strip() != "SI":
-        raise ZeroError("Sin validacion previa del lote")
+    n = min(total, args.max) if args.max else total
+    if args.enviar:
+        pregunta = (f"Se ENVIARAN hasta {n} declaraciones REALES al SRI ({detalle}) y no se pueden deshacer. "
+                    "Confirma que son de fideicomisos que NO tuvieron movimiento. Escriba SI: ")
+    else:
+        pregunta = (f"SIMULACION (no se envia nada). Confirma que estas {total} declaraciones ({detalle}) son de "
+                    "fideicomisos que NO tuvieron movimiento? Escriba SI: ")
+    if input(pregunta).strip() != "SI":
+        raise ZeroError("Sin confirmacion del lote")
     log.info("validacion_previa_lote n=%d (%s) periodo=%s-%02d por=%s", total, detalle, periodo[0], periodo[1],
              getpass.getuser())
     if args.enviar:
-        n = min(total, args.max) if args.max else total
-        if input(f"Se ENVIARAN hasta {n} declaraciones REALES al SRI ({detalle}) y no se pueden deshacer. "
-                 "Escriba ENVIAR: ").strip() != "ENVIAR":
-            raise ZeroError("Envio no confirmado")
         log.warning("envio_real_confirmado n=%d (%s) periodo=%s-%02d por=%s", n, detalle, periodo[0], periodo[1],
                     getpass.getuser())
 
@@ -220,7 +222,7 @@ def _procesar_impuesto(args, imp, listos, periodo, repo, ejec, ctx, page, clave,
             raise  # resultado esperado: ya tiene su propia captura (ya_declarado); otra de error seria basura
         except Exception:
             try:
-                capturar(page, carpeta_evidencia(fid.responsable, fid.ruc), periodo, "error", imp)
+                capturar(page, carpeta_evidencia(fid.responsable, fid.ruc, periodo, imp), periodo, "error", imp)
             except Exception:
                 log.warning("No se pudo capturar la pantalla de error")
             raise
@@ -232,23 +234,31 @@ def _procesar_impuesto(args, imp, listos, periodo, repo, ejec, ctx, page, clave,
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="zero")
     ap.add_argument("--contribuyente", help="ID del Control (un solo fideicomiso)")
-    ap.add_argument("--lote", action="store_true", help="procesa todos los fideicomisos marcados con SI")
+    ap.add_argument("--lote", action="store_true",
+                    help="procesa todo lo marcado con SI (es lo que se hace por defecto cuando no se indica --contribuyente)")
     ap.add_argument("--max", type=int, help="maximo de declaraciones en esta ejecucion (opcional: sin el, se procesa todo lo marcado con SI)")
     ap.add_argument("--pausa", type=float, default=float(os.getenv("PAUSA_ENTRE_S", "30")),
                     help="segundos de espera entre fideicomisos (se le suma una variacion al azar)")
     ap.add_argument("--incluir-revision", action="store_true", help="reintenta tambien los de revision manual")
     ap.add_argument("--enviar", action="store_true",
-                    help="ENVIA las declaraciones de verdad (exige --lote, --hasta contador y DRY_RUN=false)")
+                    help="ENVIA de verdad. Ya es lo normal con DRY_RUN=false; solo hace falta con DRY_RUN=true, que lo bloquea")
+    ap.add_argument("--simular", action="store_true",
+                    help="prueba sin enviar nada: llega hasta los datos del contador (aunque DRY_RUN=false)")
     ap.add_argument("--impuesto", choices=("2011", "1031", "todos"), default=None,
                     help="2011 = IVA; 1031 = retenciones; todos = ambos. Por defecto: todos con --lote, 2011 con --contribuyente")
-    ap.add_argument("--hasta", choices=("periodo", "siguiente", "valores", "firma", "contador"), default="periodo")
+    ap.add_argument("--hasta", choices=("periodo", "siguiente", "valores", "firma", "contador"), default=None,
+                    help="hasta donde llegar. Por defecto: contador con --lote, periodo con --contribuyente")
     ap.add_argument("--credenciales", choices=("excel", "consola"), default="excel",
                     help="excel: archivo cifrado (produccion); consola: se piden por teclado (solo desarrollo)")
     ap.add_argument("--login", choices=("auto", "manual"), default="auto",
                     help="auto: credenciales del Excel cifrado (produccion); manual: solo desarrollo")
     args = ap.parse_args(argv)
-    if bool(args.contribuyente) == args.lote:
+    if args.contribuyente and args.lote:
         ap.error("indique --contribuyente o --lote (uno solo)")
+    if not args.contribuyente:
+        args.lote = True  # sin --contribuyente se procesa todo lo marcado con SI
+    if args.hasta is None:
+        args.hasta = "contador" if args.lote else "periodo"
     if args.contribuyente and not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", args.contribuyente):
         ap.error("--contribuyente solo admite letras, numeros, guion y guion bajo")
     if args.lote and (args.login != "auto" or args.credenciales != "excel"):
@@ -260,10 +270,14 @@ def main(argv=None) -> int:
     if args.impuesto == "todos" and not args.lote:
         ap.error("--impuesto todos solo funciona con --lote")
 
+    if args.simular and args.enviar:
+        ap.error("--simular y --enviar son incompatibles")
+    if args.lote and args.hasta == "contador" and not args.simular and not settings.DRY_RUN:
+        args.enviar = True  # produccion (DRY_RUN=false): una ejecucion completa ENVIA de verdad
     if args.enviar and not (args.lote and args.hasta == "contador"):
         ap.error("--enviar requiere --lote y --hasta contador")
     if args.enviar and args.incluir_revision:
-        ap.error("--incluir-revision no se puede usar con --enviar: esos fideicomisos pudieron haberse declarado ya")
+        ap.error("--incluir-revision no se puede usar cuando se envia (use --simular): esos fideicomisos pudieron haberse declarado ya")
 
     configurar_logging()
     periodo = periodo_a_declarar()
@@ -292,7 +306,7 @@ def main(argv=None) -> int:
             except AlreadyDeclared:
                 raise  # resultado esperado: ya tiene su propia captura (ya_declarado); otra de error seria basura
             except Exception:
-                capturar(page, carpeta_evidencia(responsable, ruc or args.contribuyente), periodo, "error", args.impuesto)
+                capturar(page, carpeta_evidencia(responsable, ruc or args.contribuyente, periodo, args.impuesto), periodo, "error", args.impuesto)
                 raise
     except ZeroError as e:
         log.error("%s: %s", type(e).__name__, str(e)[:300])

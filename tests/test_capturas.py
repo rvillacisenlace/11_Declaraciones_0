@@ -58,7 +58,7 @@ def test_iva_toma_una_captura_por_pantalla_en_la_carpeta_del_responsable_y_el_ru
     _preparar_iva(monkeypatch, pasos, [])
     main._flujo(None, object(), "A1", PERIODO, "contador", object(), object(), ruc=RUC, responsable="Resp1")
     assert [p[0] for p in pasos] == ["01_periodo", "02_preguntas", "03_resumen"]
-    assert all(p[1] == "2011" and p[2] == carpeta_evidencia("Resp1", RUC) for p in pasos)
+    assert all(p[1] == "2011" and p[2] == carpeta_evidencia("Resp1", RUC, PERIODO, "2011") for p in pasos)
 
 
 @pytest.mark.parametrize("hasta,esperado", [
@@ -79,7 +79,7 @@ def test_iva_sin_ruc_ni_responsable_usa_el_id_y_sin_responsable(monkeypatch):
     pasos = []
     _preparar_iva(monkeypatch, pasos, [])
     main._flujo(None, object(), "A1", PERIODO, "periodo", object(), object())
-    assert pasos[0][2] == settings.EVIDENCE_DIR / "SIN RESPONSABLE" / "A1"
+    assert pasos[0][2] == settings.EVIDENCE_DIR / "SIN RESPONSABLE" / "A1" / "10-2026" / "2011 - Declaración de IVA"
 
 
 def test_iva_la_confirmacion_se_captura_con_el_callback_y_el_comprobante_va_al_arbol_del_responsable(monkeypatch):
@@ -90,7 +90,7 @@ def test_iva_la_confirmacion_se_captura_con_el_callback_y_el_comprobante_va_al_a
     args, kw = envios[0]
     assert args[3] == carpeta_declaracion("Resp1", RUC, "2011", PERIODO)
     kw["evidencia"]()
-    assert pasos[-1] == ("04_confirmacion", "2011", carpeta_evidencia("Resp1", RUC))
+    assert pasos[-1] == ("04_confirmacion", "2011", carpeta_evidencia("Resp1", RUC, PERIODO, "2011"))
 
 
 # ------------------------------------------------------------------ retenciones: lo mismo
@@ -111,7 +111,7 @@ def test_retenciones_toma_una_captura_por_pantalla_en_la_carpeta_del_responsable
     _preparar_ret(monkeypatch, pasos, [])
     retenciones.recorrer(None, object(), "A1", PERIODO, "contador", object(), object(), ruc=RUC, responsable="Resp1")
     assert [p[0] for p in pasos] == ["01_periodo", "02_preguntas", "03_resumen"]
-    assert all(p[1] == "1031" and p[2] == carpeta_evidencia("Resp1", RUC) for p in pasos)
+    assert all(p[1] == "1031" and p[2] == carpeta_evidencia("Resp1", RUC, PERIODO, "1031") for p in pasos)
 
 
 @pytest.mark.parametrize("hasta,esperado", [
@@ -132,7 +132,7 @@ def test_retenciones_la_confirmacion_se_captura_con_el_callback(monkeypatch):
     args, kw = envios[0]
     assert args[3] == carpeta_declaracion("Resp1", RUC, "1031", PERIODO)
     kw["evidencia"]()
-    assert pasos[-1] == ("04_confirmacion", "1031", carpeta_evidencia("Resp1", RUC))
+    assert pasos[-1] == ("04_confirmacion", "1031", carpeta_evidencia("Resp1", RUC, PERIODO, "1031"))
 
 
 # ------------------------------------------------------------------ submission: la captura va tras el exito y antes de Imprimir
