@@ -48,9 +48,12 @@ def _texto(valor) -> str:
 
 
 def _abrir(password: str):
-    if settings.CREDENCIALES_XLSX is None:
+    from src.microsoft import fuentes
+
+    origen = fuentes.credenciales_graph() or settings.CREDENCIALES_XLSX  # Graph si esta configurado; si no, el archivo local
+    if origen is None:
         raise ConfigError("Falta CREDENCIALES_XLSX en el .env")
-    return load_workbook(abrir_en_memoria(settings.CREDENCIALES_XLSX, password), read_only=True, data_only=True)
+    return load_workbook(abrir_en_memoria(origen, password), read_only=True, data_only=True)
 
 
 def _filas(libro, hoja: str) -> list[dict]:

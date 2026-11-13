@@ -9,6 +9,14 @@ class ConfigError(ZeroError):
     """Falta o es invalida la configuracion."""
 
 
+class GraphError(ZeroError):
+    """Microsoft Graph no respondio como se esperaba (red, permisos, archivo inexistente...)."""
+
+    def __init__(self, mensaje: str, status: int | None = None):
+        super().__init__(mensaje)
+        self.status = status
+
+
 class LoginError(ZeroError):
     """No hay sesion valida. Sin reintento automatico."""
 

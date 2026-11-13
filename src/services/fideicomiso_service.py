@@ -1,6 +1,7 @@
 """Lee la hoja 'Fideicomisos' del Control y decide cuales se procesan.
 Regla: nunca se adivina. Todo lo dudoso se EXCLUYE con motivo; declarar de menos es mejor que declarar de mas."""
 import os
+from contextlib import contextmanager
 import re
 import unicodedata
 from collections import Counter
@@ -63,11 +64,14 @@ def _txt(valor) -> str:
         return str(int(valor))
     return str(valor).strip()
 
-def leer_control(ruta: Path, marca: str = "declara_0") -> ResultadoControl:
-    if marca not in MARCAS:
-        raise ConfigError(f"Marca desconocida: {marca}")
+@contextmanager
+def _hoja_control(ruta):
+    """Filas de la hoja del Control (la primera es el encabezado), sea un archivo local o el Control en Graph."""
     if ruta is None:
         raise ConfigError("Falta CONTROL_XLSX en el .env")
+    if hasattr(ruta, "leer_filas"):  # origen remoto (Graph)
+        yield iter(ruta.leer_filas())
+        return
     if not Path(ruta).is_file():
         raise ConfigError(f"No se encontro el archivo de control: {Path(ruta).name} (revise la ruta en CONTROL_XLSX)")
     try:
@@ -77,7 +81,15 @@ def leer_control(ruta: Path, marca: str = "declara_0") -> ResultadoControl:
     try:
         if HOJA not in libro.sheetnames:
             raise ConfigError(f"Falta la hoja '{HOJA}' en el archivo de control")
-        filas = libro[HOJA].iter_rows(values_only=True)
+        yield libro[HOJA].iter_rows(values_only=True)
+    finally:
+        libro.close()
+
+
+def leer_control(ruta: Path, marca: str = "declara_0") -> ResultadoControl:
+    if marca not in MARCAS:
+        raise ConfigError(f"Marca desconocida: {marca}")
+    with _hoja_control(ruta) as filas:
         encabezado = [_norm(c) for c in next(filas, ())]
         columnas = BASE + (marca,)
         faltan = [c for c in columnas if c not in encabezado]
@@ -89,8 +101,6 @@ def leer_control(ruta: Path, marca: str = "declara_0") -> ResultadoControl:
             if all(_txt(c) == "" for c in f):
                 continue  # fila totalmente vacia
             datos.append((n, {c: _txt(f[i]) if i < len(f) else "" for c, i in pos.items()}))
-    finally:
-        libro.close()
 
     ids = Counter(d["id"] for _, d in datos if d["id"])
     rucs = Counter(d["ruc"] for _, d in datos if d["ruc"])
@@ -122,18 +132,7 @@ def leer_control(ruta: Path, marca: str = "declara_0") -> ResultadoControl:
 
 def leer_directorio(ruta: Path) -> Directorio:
     """Lee id, RUC y responsable de todas las filas del Control. Solo sirve para organizar carpetas: no valida marcas."""
-    if ruta is None:
-        raise ConfigError("Falta CONTROL_XLSX en el .env")
-    if not Path(ruta).is_file():
-        raise ConfigError(f"No se encontro el archivo de control: {Path(ruta).name} (revise la ruta en CONTROL_XLSX)")
-    try:
-        libro = load_workbook(ruta, read_only=True, data_only=True)
-    except PermissionError:
-        raise ConfigError("No se pudo leer el archivo de control: esta bloqueado por otro programa") from None
-    try:
-        if HOJA not in libro.sheetnames:
-            raise ConfigError(f"Falta la hoja '{HOJA}' en el archivo de control")
-        filas = libro[HOJA].iter_rows(values_only=True)
+    with _hoja_control(ruta) as filas:
         encabezado = [_norm(c) for c in next(filas, ())]
         faltan = [c for c in ("id", "ruc", "responsable") if c not in encabezado]
         if faltan:
@@ -144,8 +143,6 @@ def leer_directorio(ruta: Path) -> Directorio:
             d = {c: _txt(f[i]) if i < len(f) else "" for c, i in pos.items()}
             if d["id"] or d["ruc"]:
                 datos.append(d)
-    finally:
-        libro.close()
     por_id, por_ruc, ambiguos = {}, {}, []
     for d in datos:
         for clave, tabla, valor in ((d["id"], por_id, (d["ruc"], d["responsable"])), (d["ruc"], por_ruc, d["responsable"])):
@@ -160,7 +157,12 @@ def leer_directorio(ruta: Path) -> Directorio:
     return Directorio(por_id, por_ruc, sorted(set(ambiguos)))
 
 def ruta_control():
-    """Ruta local del Control (CONTROL_XLSX en el .env) mientras no exista Graph."""
+    """Origen del Control: el de Graph si esta configurado (GRAPH_CONTROL_*); si no, la ruta local (CONTROL_XLSX)."""
+    from src.microsoft import fuentes
+
+    remoto = fuentes.control_graph()
+    if remoto is not None:
+        return remoto
     valor = os.getenv("CONTROL_XLSX", "")
     return Path(valor) if valor else None
 

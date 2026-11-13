@@ -2,6 +2,9 @@ playwright
 python-dotenv
 tzdata
 msoffcrypto-tool
+msal
+requests
+truststore
 openpyxl
 pypdf
 # desarrollo: pytest

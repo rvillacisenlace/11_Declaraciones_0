@@ -36,6 +36,7 @@ evidence/
 *.png
 *.pdf
 *.xml
+*.ico
 
 # Pruebas y empaquetado
 .pytest_cache/

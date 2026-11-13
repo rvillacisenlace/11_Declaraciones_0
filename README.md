@@ -29,12 +29,13 @@ Está hecho en Python con Playwright. Controla un Microsoft Edge real, sin captc
 - Los estados finales (`declarado`, `ya_declarado`, `obligacion_no_disponible`) no se reintentan: la base impide declarar dos veces lo mismo.
 - Si algo falla **después** de pulsar "Aceptar", el resultado es `EnvioIncierto`: el lote se detiene y hay que verificar en el SRI antes de reintentar.
 - Las claves nunca se guardan: la contraseña del archivo de credenciales se pide por teclado y el archivo se descifra solo en memoria. Los logs enmascaran RUC y claves.
+- El secreto de Microsoft Graph no viaja en el `.exe` ni se escribe en el log: se guarda en el Administrador de credenciales de Windows (ver [Microsoft Graph](#microsoft-graph-opcional)).
 
 ## Requisitos
 
 - Windows y Microsoft Edge instalado.
 - Python 3.10 o superior (probado con 3.14).
-- Dependencias de `requirements.txt` (Playwright, openpyxl, pypdf, msoffcrypto-tool, python-dotenv, tzdata). Para desarrollo, además `pytest` y `pyflakes`.
+- Dependencias de `requirements.txt` (Playwright, openpyxl, pypdf, msoffcrypto-tool, python-dotenv, tzdata, msal, requests, truststore). Para desarrollo, además `pytest` y `pyflakes`.
 
 ## Instalación
 
@@ -59,7 +60,7 @@ Copie `.env.example` a `%APPDATA%\Zero\.env` y complete los valores. Si define `
 | `LOG_RETENTION_DAYS` | No (`30`) | Días de historial de logs |
 | `ZERO_HOME` | No | Carpeta de trabajo (por defecto `%APPDATA%\Zero`) |
 
-Las variables `MICROSOFT_*`, `EXCEL_PATH` y `EXCEL_SECRET_TARGET` están reservadas para la integración con Microsoft Graph, que todavía no existe.
+Las variables `MICROSOFT_*` y `GRAPH_*` son opcionales: activan Microsoft Graph (ver [Microsoft Graph](#microsoft-graph-opcional)). Mientras no se indiquen los archivos de Graph, todo es local.
 
 ## Archivos de datos
 
@@ -95,6 +96,26 @@ Libro de Excel **cifrado con contraseña**:
 - Hoja `Contador`: `Usuario SRI` y `Contraseña SRI`, **una sola fila**: el contador firma todas las declaraciones.
 
 El cruce con el Control es por RUC.
+
+### Microsoft Graph (opcional)
+
+Por defecto el Control y las credenciales son archivos locales. Para leerlos y anotarlos en OneDrive o SharePoint se activa Graph **por archivo**, indicando su `drive_id` y su `item_id`:
+
+| Variable | Descripción |
+|---|---|
+| `MICROSOFT_TENANT_ID`, `MICROSOFT_CLIENT_ID` | Identificadores de la aplicación registrada en Entra ID |
+| `MICROSOFT_SECRET_TARGET` | Nombre bajo el que el secreto está guardado en el Administrador de credenciales de Windows |
+| `MICROSOFT_CLIENT_SECRET` | Último recurso: el secreto en texto plano en el `.env` (no recomendado; se avisa en el log) |
+| `GRAPH_CONTROL_DRIVE_ID`, `GRAPH_CONTROL_ITEM_ID` | Activan Graph para el Control (reemplaza a `CONTROL_XLSX`) |
+| `GRAPH_CREDENCIALES_DRIVE_ID`, `GRAPH_CREDENCIALES_ITEM_ID` | Activan Graph para el archivo cifrado (reemplaza a `CREDENCIALES_XLSX`) |
+
+- Es un cliente confidencial con permiso de aplicación: quien tenga el secreto actúa sin iniciar sesión y con el alcance que TI haya concedido a la aplicación, que puede ser muy amplio. Trate el secreto como una llave maestra y rótelo si se expone.
+- El instalador lo guarda en el Administrador de credenciales: `cmdkey /generic:Zero.MicrosoftSecret /user:zero /pass:<secreto>`; en el `.env` solo va el nombre (`MICROSOFT_SECRET_TARGET=Zero.MicrosoftSecret`).
+- El Control se lee con la API de workbook (solo admite libros `.xlsx`) y se escribe **una sola celda** (`DECLARADO`), después de comprobar que la fila sigue siendo ese ID y la celda dice `SI`, con una copia de seguridad previa y verificando la escritura. Con Graph escribir una celda no reemplaza el archivo, así que en principio ya no hace falta cerrar el Control en Excel (compruébelo en su entorno).
+- El archivo de credenciales se descarga a memoria y se descifra allí: nunca se escribe a disco.
+- Una configuración a medias (solo uno de los dos IDs, o sin tenant, cliente o secreto) es un error: el programa nunca vuelve en silencio a una copia local.
+- Las llamadas tienen tiempo máximo y se reintentan ante límites (429) o fallos pasajeros (502, 503, 504).
+- Para comprobar sin tocar nada: `py -m diagnostics.diag_graph`. Para obtener los IDs de un archivo: `py -m diagnostics.diag_graph --buscar CUENTA RUTA --como control --escribir`.
 
 ## Uso
 
@@ -194,6 +215,7 @@ Herramientas en `diagnostics/`. Ninguna envía declaraciones.
 | `py -m diagnostics.diag_credenciales` | Describe la estructura del archivo de credenciales sin mostrar valores |
 | `py -m diagnostics.diag_cruce` | Cruza Control y Credenciales por RUC y muestra solo conteos |
 | `py -m diagnostics.diag_pantalla` | Describe la pantalla abierta del portal sin pulsar nada (para mapear pantallas nuevas) |
+| `py -m diagnostics.diag_graph` | Comprueba Graph (secreto, token, lectura del Control y de las credenciales) sin escribir nada; con `--buscar` localiza los IDs de un archivo |
 | `py -m diagnostics.mover_comprobantes` | Reubica comprobantes y capturas al árbol actual. Simula por defecto; `--aplicar` mueve y `--capturas` incluye las imágenes |
 
 ## Desarrollo
@@ -216,6 +238,7 @@ Estructura:
 | `src/database/` | Estado en SQLite (con migración automática y copia de seguridad) |
 | `src/security/` | Descifrado y lectura de credenciales |
 | `src/services/` | Lectura del Control y anotación de `DECLARADO` en una celda |
+| `src/microsoft/` | Microsoft Graph: autenticación y secreto, cliente HTTP con reintentos, Control y credenciales en OneDrive |
 | `src/utils/` | Rutas, capturas, logs con enmascarado, validaciones |
 | `tests/` | Pruebas automáticas |
 
@@ -228,7 +251,7 @@ Reglas del proyecto:
 
 ## Pendiente y limitaciones
 
-- **Microsoft Graph:** leer y escribir el Control en OneDrive o SharePoint. `src/microsoft/` y `src/services/tracking_service.py` son marcadores vacíos.
+- **Microsoft Graph:** subir `Declaraciones` y `Evidencias` a OneDrive. `src/services/tracking_service.py` sigue vacío.
 - **Reinicio automático de marcas** al empezar cada mes.
 - **Instalador** (PyInstaller e Inno Setup).
 - Solo Windows y Edge.

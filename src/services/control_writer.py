@@ -68,6 +68,8 @@ def _verificar(antes: dict, despues: dict, fila: int, col: int) -> None:
 def marcar_declarado(ruta, fila: int, id_: str, marca: str, respaldos: Path | None = None) -> bool:
     """Pone DECLARADO en la celda de 'marca' de esa fila. True si la celda queda en DECLARADO; False si no se tocó
     (el ID no coincide o la celda ya no dice SI)."""
+    if hasattr(ruta, "marcar_declarado"):  # origen remoto (Graph): lo anota su propio repositorio
+        return ruta.marcar_declarado(fila, id_, marca, respaldos)
     if marca not in MARCAS:
         raise ConfigError(f"Marca desconocida: {marca}")
     if ruta is None or not Path(ruta).is_file():
