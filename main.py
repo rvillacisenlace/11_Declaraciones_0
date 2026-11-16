@@ -17,8 +17,9 @@ from src.services.control_writer import marcar_declarado
 from src.services.fideicomiso_service import cruzar_credenciales, leer_control, ruta_control
 from src.sri import authentication, declaration, navigation, retenciones, signature, submission
 from src.sri.browser import open_context
+from src.utils.candado import candado_de_ejecucion
 from src.utils.evidence import capturar
-from src.utils.exceptions import AlreadyDeclared, ConfigError, ZeroError
+from src.utils.exceptions import AlreadyDeclared, ConfigError, EjecucionEnCurso, ZeroError
 from src.utils.logger import configurar_logging, get_logger
 from src.utils.rutas import carpeta_declaracion, carpeta_evidencia
 from src.utils.validators import nombre_mes, periodo_a_declarar
@@ -232,6 +233,16 @@ def _procesar_impuesto(args, imp, listos, periodo, repo, ejec, ctx, page, clave,
 
 
 def main(argv=None) -> int:
+    """Una sola ejecucion de Zero a la vez en el equipo: una segunda podria declarar dos veces el mismo fideicomiso."""
+    try:
+        with candado_de_ejecucion(settings.HOME / "zero.lock"):
+            return _main(argv)
+    except EjecucionEnCurso as e:
+        print(f"\n{e}")
+        return 1
+
+
+def _main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="zero")
     ap.add_argument("--contribuyente", help="ID del Control (un solo fideicomiso)")
     ap.add_argument("--lote", action="store_true",

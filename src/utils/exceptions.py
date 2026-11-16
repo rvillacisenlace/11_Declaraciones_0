@@ -65,3 +65,7 @@ class EnvioIncierto(ZeroError):
 
 class RecargosInesperados(ZeroError):
     """El portal calculo interes o multa: la declaracion no seria en cero. No se envia."""
+
+
+class EjecucionEnCurso(ZeroError):
+    """Ya hay otra ejecucion de Zero activa en este equipo: no se lanza una segunda."""
