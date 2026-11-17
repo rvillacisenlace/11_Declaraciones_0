@@ -37,8 +37,10 @@ evidence/
 *.pdf
 *.xml
 *.ico
+!assets/*.ico
 
 # Pruebas y empaquetado
 .pytest_cache/
 build/
 dist/
+instalador_salida/
