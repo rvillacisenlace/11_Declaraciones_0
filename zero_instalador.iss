@@ -6,7 +6,7 @@
 ; usuario que instala (el mismo que luego ejecuta Zero).
 
 #define NombreApp "Zero"
-#define VersionApp "0.2.0"
+#define VersionApp "0.1.1"
 #define PublicadorApp "Enlace"
 #define EjecutableApp "Zero.exe"
 #define DestinoSecreto "Zero.MicrosoftSecret"
@@ -44,6 +44,7 @@ Name: "{userappdata}\{#NombreApp}"
 
 [Icons]
 Name: "{group}\{#NombreApp}"; Filename: "{app}\{#EjecutableApp}"; WorkingDir: "{app}"
+Name: "{group}\{#NombreApp} - Simulacion (no envia nada)"; Filename: "{app}\{#EjecutableApp}"; Parameters: "--simular"; WorkingDir: "{app}"
 Name: "{group}\Editar configuracion (.env)"; Filename: "notepad.exe"; Parameters: """{userappdata}\{#NombreApp}\.env"""
 Name: "{group}\Desinstalar {#NombreApp}"; Filename: "{uninstallexe}"
 Name: "{userdesktop}\{#NombreApp}"; Filename: "{app}\{#EjecutableApp}"; WorkingDir: "{app}"; Tasks: desktopicon
