@@ -33,7 +33,7 @@ def test_instalacion_por_usuario_sin_administrador():
 
 def test_el_instalador_y_el_spec_hablan_del_mismo_exe():
     assert _define("EjecutableApp") == f'{re.search(r"NOMBRE = .(\w+).", SPEC).group(1)}.exe'
-    assert 'ENTRADA = "zero_app.py"' in SPEC and "console=True" in SPEC
+    assert 'ENTRADA = "zero_gui.py"' in SPEC and "console=False" in SPEC
 
 
 def test_el_secreto_nunca_se_escribe_al_env():
@@ -56,8 +56,10 @@ def test_el_instalador_solo_escribe_variables_que_existen():
     assert escritas and escritas <= conocidas, escritas - conocidas
 
 
-def test_el_instalador_trae_la_simulacion():
-    assert 'Parameters: "--simular"' in ISS
+def test_el_exe_es_una_ventana_que_necesita_tkinter_y_no_recibe_argumentos():
+    excluidos = re.search(r"EXCLUIDOS = \[(.*?)\]", SPEC, re.S).group(1)
+    assert "tkinter" not in excluidos
+    assert "Parameters:" not in re.sub(r'Parameters: """\{userappdata\}[^\n]*', "", ISS)  # solo el acceso al .env lleva parametros
 
 
 def test_script_solo_ascii():
