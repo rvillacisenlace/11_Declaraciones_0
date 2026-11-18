@@ -102,6 +102,7 @@ def _flujo(ctx, page, cid: str, periodo: tuple[int, int], hasta: str, cred, cont
 
     if sesion_iniciada:
         log.info("Se reutiliza la sesion ya iniciada")
+        navigation.volver_al_inicio(page)
     elif cred is None:  # solo desarrollo
         navigation.abrir_login(page)
         input("\nInicie sesion MANUALMENTE en la ventana de Edge (un solo intento) y presione ENTER... ")

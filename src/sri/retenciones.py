@@ -26,6 +26,7 @@ CAMPOS_RECARGO = {"interes": '[id="frmFlujoDeclaracion:valorInteres_input"]',
 
 def abrir_formulario(page: Page) -> None:
     log.info("URL antes de abrir el formulario de retenciones: %s", url_corta(page.url))
+    navigation.recordar_inicio(page)
     opcion = page.get_by_text(MENU, exact=True)
     try:
         opcion.first.wait_for(state="visible", timeout=15_000)
@@ -147,6 +148,7 @@ def recorrer(ctx, page: Page, cid: str, periodo: tuple[int, int], hasta: str, cr
 
     if sesion_iniciada:
         log.info("Se reutiliza la sesion ya iniciada")
+        navigation.volver_al_inicio(page)
     elif cred is None:  # solo desarrollo
         navigation.abrir_login(page)
         input("\nInicie sesion MANUALMENTE en la ventana de Edge (un solo intento) y presione ENTER... ")
