@@ -25,12 +25,14 @@ class ResultadoLote:
     omitidos: int = 0
     procesados: int = 0
     por_estado: dict = field(default_factory=dict)
+    omitidos_por_estado: dict = field(default_factory=dict)  # por que se omitio: {estado de la base: cantidad}
     detenido: str | None = None
 
     def resumen(self) -> str:
         estados = ", ".join(f"{k}={v}" for k, v in sorted(self.por_estado.items())) or "sin cambios"
-        return (f"procesados={self.procesados} omitidos={self.omitidos} [{estados}]"
-                + (f" | DETENIDO: {self.detenido}" if self.detenido else ""))
+        motivo = ", ".join(f"{k}: {v}" for k, v in sorted(self.omitidos_por_estado.items()))
+        return (f"procesados={self.procesados} omitidos={self.omitidos}" + (f" ({motivo})" if motivo else "")
+                + f" [{estados}]" + (f" | DETENIDO: {self.detenido}" if self.detenido else ""))
 
 
 def _clasificar(e: Exception):
@@ -85,6 +87,9 @@ def procesar_por_fideicomiso(grupos, periodo: tuple, repo, ejecutar, ejecucion_i
             estado = repo.estado(f.id, txt, imp)
             if estado in omitir:
                 res[imp].omitidos += 1
+                res[imp].omitidos_por_estado[estado.value] = res[imp].omitidos_por_estado.get(estado.value, 0) + 1
+                # Si la base ya lo da por declarado pero el Control sigue en SI (anotacion que fallo antes), se corrige aqui.
+                _avisar(None if al_terminar is None else (lambda fid, est, i=imp: al_terminar(fid, est, i)), f, estado)
             else:
                 pendientes.append((PRIORIDAD.get(estado, 2), imp))
         if pendientes:

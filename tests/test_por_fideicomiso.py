@@ -190,3 +190,56 @@ def test_main_anota_en_el_control_cada_impuesto_en_su_columna(dos_impuestos, mon
     monkeypatch.setattr(retenciones, "recorrer", ya)
     assert main.main(["--lote", "--hasta", "periodo", "--pausa", "0", "--max", "2"]) == 0
     assert anotados == [("A1", "declara_0"), ("A1", "retencion_0")]
+
+
+# ------------------------------------------------------------------ omitidos: se anotan en el Control y se explican
+def test_un_omitido_ya_declarado_se_anota_en_el_control_sin_volver_a_procesarlo(repo):
+    repo.marcar("A", TXT, Estado.DECLARADO, impuesto="2011")
+    repo.marcar("A", TXT, Estado.YA_DECLARADO, impuesto="1031")
+    avisos = []
+    _, vistos = correr(repo, G(("A", DOS)), al_terminar=lambda f, e, imp: avisos.append((f.id, e, imp)))
+    assert vistos == [] and avisos == [("A", Estado.DECLARADO, "2011"), ("A", Estado.YA_DECLARADO, "1031")]
+
+
+@pytest.mark.parametrize("estado", [Estado.OBLIGACION_NO_DISPONIBLE, Estado.REVISION_MANUAL])
+def test_los_omitidos_que_no_son_declaraciones_no_se_anotan(repo, estado):
+    repo.marcar("A", TXT, estado, impuesto="2011")
+    avisos = []
+    _, vistos = correr(repo, G(("A", ("2011",))), al_terminar=lambda f, e, imp: avisos.append(imp))
+    assert vistos == [] and avisos == []
+
+
+def test_si_falla_la_anotacion_de_un_omitido_el_lote_sigue(repo):
+    repo.marcar("A", TXT, Estado.DECLARADO, impuesto="2011")
+
+    def falla(f, e, imp):
+        raise RuntimeError("Graph no confirmo")
+    res, vistos = correr(repo, G(("A", ("2011",)), ("B", ("2011",))), al_terminar=falla)
+    assert vistos == [("B", "2011")] and res["2011"].omitidos == 1 and res["2011"].detenido is None
+
+
+def test_el_resumen_dice_por_que_se_omitio(repo):
+    repo.marcar("A", TXT, Estado.DECLARADO, impuesto="2011")
+    repo.marcar("B", TXT, Estado.OBLIGACION_NO_DISPONIBLE, impuesto="2011")
+    repo.marcar("C", TXT, Estado.DECLARADO, impuesto="2011")
+    res, _ = correr(repo, G(("B", ("2011",)), ("A", ("2011",)), ("C", ("2011",)), ("D", ("2011",))))  # B (obligacion) primero
+    assert res["2011"].omitidos == 3 and res["2011"].omitidos_por_estado == {"declarado": 2, "obligacion_no_disponible": 1}
+    assert "omitidos=3 (declarado: 2, obligacion_no_disponible: 1)" in res["2011"].resumen()
+
+
+def test_sin_omitidos_el_resumen_no_trae_parentesis(repo):
+    res, _ = correr(repo, G(("A", ("2011",))))
+    assert "omitidos=0 [" in res["2011"].resumen()
+
+
+def test_main_anota_lo_ya_declarado_que_sigue_en_si_y_lo_dice_en_el_resumen(dos_impuestos, monkeypatch, capsys):
+    _, _, _, eventos = dos_impuestos
+    with Repositorio(main.settings.DATA_DIR / "execution_history.db") as r:
+        r.marcar("A1", "2026-10", Estado.DECLARADO, impuesto="2011")
+        r.marcar("A2", "2026-10", Estado.OBLIGACION_NO_DISPONIBLE, impuesto="2011")
+    anotados = []
+    monkeypatch.setattr(main, "ruta_control", lambda: "control.xlsx")
+    monkeypatch.setattr(main, "marcar_declarado", lambda ruta, fila, id_, marca, resp: anotados.append((id_, marca)))
+    assert main.main(["--lote", "--impuesto", "2011", "--hasta", "periodo", "--pausa", "0"]) == 0
+    assert anotados == [("A1", "declara_0")] and eventos == []
+    assert "IVA: procesados=0 omitidos=2 (declarado: 1, obligacion_no_disponible: 1)" in capsys.readouterr().out
