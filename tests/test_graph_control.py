@@ -155,10 +155,30 @@ def test_faltan_columnas(tmp_path):
         c.marcar_declarado(2, "A1", "declara_0", tmp_path)
 
 
-def test_si_graph_no_confirma_la_anotacion_se_avisa(tmp_path):
-    c, _ = _control(ignorar_escritura=True)
+def test_si_graph_no_confirma_la_anotacion_se_avisa(tmp_path, monkeypatch):
+    esperas = []
+    monkeypatch.setattr("src.microsoft.excel_repository.time.sleep", esperas.append)
+    c, cl = _control(ignorar_escritura=True)
     with pytest.raises(ConfigError, match="no confirmo"):
         c.marcar_declarado(2, "A1", "declara_0", tmp_path)
+    lecturas = [x for x in cl.llamadas if x[0] == "GET" and not x[1].endswith("/usedRange")]
+    assert len(lecturas) == 4 and len(esperas) == 3  # 4 lecturas con 3 esperas entre ellas
+
+
+def test_si_la_lectura_va_atrasada_se_espera_y_se_confirma_sin_reescribir(tmp_path, monkeypatch):
+    esperas = []
+    monkeypatch.setattr("src.microsoft.excel_repository.time.sleep", esperas.append)
+    c, cl = _control(lecturas_atrasadas=2)  # las 2 primeras lecturas aun muestran SI
+    assert c.marcar_declarado(2, "A1", "declara_0", tmp_path) is True
+    assert len(cl.escrituras()) == 1 and len(esperas) == 2 and cl.filas[1][3] == "DECLARADO"
+
+
+def test_si_la_primera_lectura_ya_confirma_no_se_espera(tmp_path, monkeypatch):
+    esperas = []
+    monkeypatch.setattr("src.microsoft.excel_repository.time.sleep", esperas.append)
+    c, _ = _control()
+    assert c.marcar_declarado(2, "A1", "declara_0", tmp_path) is True
+    assert esperas == []
 
 
 def test_control_writer_delega_en_graph(tmp_path):

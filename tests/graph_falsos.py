@@ -48,7 +48,9 @@ class AutenticacionFalsa:
 class ClienteControlFalso:
     """Imita la hoja 'Fideicomisos' de Graph: usedRange, lectura/escritura de una celda y descarga del archivo."""
 
-    def __init__(self, filas, origen="A1", contenido=b"libro-original", ignorar_escritura=False):
+    def __init__(self, filas, origen="A1", contenido=b"libro-original", ignorar_escritura=False, lecturas_atrasadas=0):
+        self.lecturas_atrasadas = lecturas_atrasadas  # lecturas de la celda que, tras escribirla, aun devuelven el valor viejo
+        self._viejo = None
         self.filas = [list(f) for f in filas]
         self.origen = origen
         self.contenido = contenido
@@ -72,12 +74,16 @@ class ClienteControlFalso:
             fin = f"{get_column_letter(c0 + ancho - 1)}{f0 + max(len(self.filas), 1) - 1}"
             return {"address": f"Fideicomisos!{self.origen}:{fin}", "values": self.filas}
         i, j = self._celda(ruta)
+        if self._viejo is not None and self.lecturas_atrasadas > 0:
+            self.lecturas_atrasadas -= 1
+            return {"values": [[self._viejo]]}
         return {"values": [[self.filas[i][j]]]}
 
     def patch_json(self, ruta, cuerpo, *, contexto):
         self.llamadas.append(("PATCH", ruta, cuerpo))
         if not self.ignorar_escritura:
             i, j = self._celda(ruta)
+            self._viejo = self.filas[i][j]
             self.filas[i][j] = cuerpo["values"][0][0]
         return {}
 

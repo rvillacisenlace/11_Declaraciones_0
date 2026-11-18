@@ -4,6 +4,7 @@
 - ArchivoGraph: descarga los bytes (el archivo de credenciales va cifrado: se descifra en memoria, igual que en local).
 """
 import re
+import time
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
@@ -17,6 +18,8 @@ from src.utils.exceptions import ConfigError, GraphError
 from src.utils.logger import get_logger
 
 log = get_logger(__name__)
+_VERIFICACIONES = 4  # Graph puede devolver la celda anterior unos segundos despues de escribirla (sin sesion de libro)
+_ESPERA_S = 2.0
 _ORIGEN = re.compile(r"!\$?([A-Z]{1,3})\$?(\d+)")
 
 
@@ -86,8 +89,13 @@ class ControlGraph(_ItemGraph):
         celda = f"{get_column_letter(c_marca + 1)}{fila}"
         rango = f"{self._hoja}/range(address='{celda}')"
         self._cliente.patch_json(rango, {"values": [[TEXTO]]}, contexto="anotar DECLARADO en el Control")
-        leido = self._cliente.get_json(rango, contexto="verificar la anotacion en el Control").get("values", [[None]])[0][0]
-        if _norm(leido) != "declarado":
-            raise ConfigError("Graph no confirmo la anotacion en el Control: revise la celda a mano")
+        for intento in range(_VERIFICACIONES):
+            if intento:
+                time.sleep(_ESPERA_S)  # la escritura ya se hizo: solo se espera a que la lectura la refleje, no se reescribe
+            leido = self._cliente.get_json(rango, contexto="verificar la anotacion en el Control").get("values", [[None]])[0][0]
+            if _norm(leido) == "declarado":
+                break
+        else:
+            raise ConfigError(f"Graph no confirmo la anotacion en el Control tras {_VERIFICACIONES} lecturas: revise la celda a mano")
         log.info("Control: %s de %s marcado como %s", marca.upper(), id_, TEXTO)
         return True
