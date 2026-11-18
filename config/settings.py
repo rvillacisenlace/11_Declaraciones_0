@@ -1,10 +1,10 @@
-"""Configuracion y rutas. Todo vive en %APPDATA%\\Zero (o ZERO_HOME, para desarrollo)."""
+﻿"""Configuracion y rutas. Todo vive en %APPDATA%\\Zero (o ZERO_HOME, para desarrollo)."""
 import os
 from pathlib import Path
 
 from dotenv import load_dotenv
 
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 
 HOME = Path(os.getenv("ZERO_HOME") or Path(os.getenv("APPDATA", "")) / "Zero")
 load_dotenv(HOME / ".env")
