@@ -71,6 +71,26 @@ def _marcar_si(page: Page) -> None:
         raise PortalChanged("La respuesta SI de firma de contador no quedo marcada") from None
 
 
+_RETARDOS_TECLEO_MS = (40, 80, 120)  # por tecla; si el campo no recibe todo, se limpia y se repite mas despacio
+
+
+def _teclear(page: Page, campo, texto: str, nombre: str, *, exacto: bool) -> None:
+    """Escribe en el campo como una persona y comprueba que recibio TODO el texto. En equipos lentos el portal pierde
+    teclas o repinta el campo; si pasa, se limpia y se repite mas despacio. Nunca se registra lo escrito."""
+    for intento, retardo in enumerate(_RETARDOS_TECLEO_MS, 1):
+        campo.click()
+        if intento > 1:
+            campo.fill("")
+            page.wait_for_timeout(500)
+        campo.press_sequentially(texto, delay=retardo)
+        page.wait_for_timeout(300)  # un repintado tardio del portal puede vaciar el campo: se mira despues de esperar
+        recibido = campo.input_value()
+        if (recibido == texto) if exacto else (len(recibido) == len(texto)):
+            return
+        log.warning("El campo %s no recibio el texto completo (intento %d de %d)", nombre, intento, len(_RETARDOS_TECLEO_MS))
+    raise LoginError(f"El campo {nombre} no recibio el texto completo tras {len(_RETARDOS_TECLEO_MS)} intentos")
+
+
 def _estado_nombres(div) -> tuple[str, str]:
     if div.count() == 0:
         return "", ""
@@ -95,10 +115,7 @@ def llenar_contador(page: Page, contador: Credencial) -> None:
 
     nombres = page.locator(CONTADOR_NOMBRES)
     antes_texto, _ = _estado_nombres(nombres)
-    ruc.click()
-    ruc.press_sequentially(contador.ruc, delay=40)  # el campo solo admite digitos por teclado
-    if ruc.input_value() != contador.ruc:
-        raise LoginError("El campo RUC del contador no recibio el texto completo")
+    _teclear(page, ruc, contador.ruc, "RUC del contador", exacto=True)  # el campo solo admite digitos por teclado
     ruc.press("Tab")  # el blur dispara el ajax que carga apellidos y nombres
     _esperar_ajax(page, 5_000)
 
@@ -115,10 +132,8 @@ def llenar_contador(page: Page, contador: Credencial) -> None:
         raise PortalChanged("El portal no cargo los apellidos y nombres del contador")
 
     clave = page.locator(CONTADOR_CLAVE)
-    clave.click()
-    clave.press_sequentially(contador.clave, delay=40)
-    if len(clave.input_value()) != len(contador.clave):
-        raise LoginError("La clave del contador no se escribio completa")
+    _esperar_ajax(page, 5_000)  # que el portal termine de repintar tras cargar los nombres, antes de escribir la clave
+    _teclear(page, clave, contador.clave, "clave del contador", exacto=False)
 
     boton = page.locator(BOTON_ACEPTAR)
     try:

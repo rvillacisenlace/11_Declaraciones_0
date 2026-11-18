@@ -4,7 +4,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 
 HOME = Path(os.getenv("ZERO_HOME") or Path(os.getenv("APPDATA", "")) / "Zero")
 load_dotenv(HOME / ".env")

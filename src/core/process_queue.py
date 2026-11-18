@@ -122,7 +122,7 @@ def procesar_por_fideicomiso(grupos, periodo: tuple, repo, ejecutar, ejecucion_i
                 estado, efecto, motivo = _clasificar(e)
                 repo.marcar(f.id, txt, estado, f"{type(e).__name__}: {e}", ejecucion_id, impuesto=imp)
                 conteo[imp][estado.value] += 1
-                log.warning("Fideicomiso %s (%s) -> %s (%s)", f.id, imp, estado.value, type(e).__name__)
+                log.warning("Fideicomiso %s (%s) -> %s (%s: %s)", f.id, imp, estado.value, type(e).__name__, str(e)[:200])
                 _avisar(None if al_terminar is None else (lambda fid, est, i=imp: al_terminar(fid, est, i)), f, estado)
                 if efecto == "stop":
                     r.detenido, parar = motivo, True

@@ -243,3 +243,12 @@ def test_main_anota_lo_ya_declarado_que_sigue_en_si_y_lo_dice_en_el_resumen(dos_
     assert main.main(["--lote", "--impuesto", "2011", "--hasta", "periodo", "--pausa", "0"]) == 0
     assert anotados == [("A1", "declara_0")] and eventos == []
     assert "IVA: procesados=0 omitidos=2 (declarado: 1, obligacion_no_disponible: 1)" in capsys.readouterr().out
+
+
+def test_el_log_de_un_fallo_incluye_el_mensaje_del_error(repo, caplog):
+    import logging
+
+    from src.utils.exceptions import LoginError
+    with caplog.at_level(logging.WARNING):
+        correr(repo, G(("A", ("2011",))), {("A", "2011"): LoginError("La clave del contador no recibio el texto completo")})
+    assert "(LoginError: La clave del contador no recibio el texto completo)" in caplog.text
