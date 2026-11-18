@@ -8,7 +8,7 @@ import sys
 from collections import Counter
 
 from config import settings
-from src.core.process_queue import procesar_lote
+from src.core.process_queue import procesar_por_fideicomiso
 from src.database.models import Estado
 from src.database.repository import Repositorio
 from src.security import credential_repository
@@ -92,14 +92,17 @@ def _credenciales_por_consola(cid: str, login: str, con_contador: bool):
 
 
 def _flujo(ctx, page, cid: str, periodo: tuple[int, int], hasta: str, cred, contador, *, enviar: bool = False,
-           ruc: str | None = None, responsable: str | None = None) -> str | None:
-    """Recorrido del IVA. Capturas: una por pantalla, justo antes de cada clic (Siguiente, Siguiente, Aceptar, Imprimir)."""
+           ruc: str | None = None, responsable: str | None = None, sesion_iniciada: bool = False) -> str | None:
+    """Recorrido del IVA. Con sesion_iniciada=True no inicia sesion (ya la abrio otro impuesto del mismo fideicomiso).
+    Capturas: una por pantalla, justo antes de cada clic (Siguiente, Siguiente, Aceptar, Imprimir)."""
     evid = carpeta_evidencia(responsable, ruc or cid, periodo, "2011")
 
     def foto(paso: str) -> None:
         capturar(page, evid, periodo, paso, "2011")
 
-    if cred is None:  # solo desarrollo
+    if sesion_iniciada:
+        log.info("Se reutiliza la sesion ya iniciada")
+    elif cred is None:  # solo desarrollo
         navigation.abrir_login(page)
         input("\nInicie sesion MANUALMENTE en la ventana de Edge (un solo intento) y presione ENTER... ")
     else:
@@ -180,45 +183,54 @@ def _ejecutar_lote(args, periodo: tuple[int, int]) -> int:
                     getpass.getuser())
 
     contador = credential_repository.cargar_contador(clave) if args.hasta == "contador" else None
-    resultados, restante = [], args.max
     with Repositorio(settings.DATA_DIR / "execution_history.db") as repo:
         ejec = repo.iniciar_ejecucion(settings.VERSION, settings.DRY_RUN, f"{args.hasta} ({args.impuesto})",
                                       f"{periodo[0]}-{periodo[1]:02d}", getpass.getuser())
         with open_context() as ctx:
             page = ctx.pages[0] if ctx.pages else ctx.new_page()
-            for imp in impuestos:
-                if not listos[imp] or (restante is not None and restante < 1):
-                    continue
-                res = _procesar_impuesto(args, imp, listos[imp], periodo, repo, ejec, ctx, page, clave, contador, restante)
-                resultados.append((imp, res))
-                if restante is not None:
-                    restante -= res.procesados
-                if res.detenido:
-                    break  # un problema general (portal, fallos seguidos): no se sigue con el otro impuesto
+            res = _procesar_fideicomisos(args, _agrupar(listos, impuestos), periodo, repo, ejec, ctx, page, clave, contador)
+        resultados = [(i, res[i]) for i in impuestos if i in res]
         repo.cerrar_ejecucion(ejec, " | ".join(f"{NOMBRES_IMPUESTO[i]}: {r.resumen()}" for i, r in resultados))
-    for imp, res in resultados:
-        print(f"\n{NOMBRES_IMPUESTO[imp]}: {res.resumen()}")
+    for imp, r in resultados:
+        print(f"\n{NOMBRES_IMPUESTO[imp]}: {r.resumen()}")
     return 3 if any(r.detenido for _, r in resultados) else 0
 
 
-def _procesar_impuesto(args, imp, listos, periodo, repo, ejec, ctx, page, clave, contador, max_n):
-    """Una pasada de la cola para un impuesto (misma base, mismo navegador y mismas claves que el resto de la ejecucion)."""
-    estado_ok = Estado.DECLARADO if args.enviar else (Estado.SIMULADO if args.hasta == "contador" else Estado.PARCIAL)
+def _agrupar(listos: dict, impuestos) -> list:
+    """Un grupo por fideicomiso con los impuestos que tiene marcados: [(fideicomiso, (impuestos...))]. Orden: el del
+    Control para el primer impuesto, y despues los fideicomisos que solo estan marcados en los siguientes."""
+    por_id: dict = {}
+    for imp in impuestos:
+        for f in listos[imp]:
+            por_id.setdefault(f.id, (f, []))[1].append(imp)
+    return [(f, tuple(imps)) for f, imps in por_id.values()]
 
-    def reflejar_en_control(f, estado):
+
+def _procesar_fideicomisos(args, grupos, periodo, repo, ejec, ctx, page, clave, contador):
+    """Una pasada de la cola: cada fideicomiso hace sus impuestos seguidos (IVA y luego retenciones) con UN solo
+    inicio de sesion, y recien despues se pasa al siguiente fideicomiso."""
+    estado_ok = Estado.DECLARADO if args.enviar else (Estado.SIMULADO if args.hasta == "contador" else Estado.PARCIAL)
+    activa = {"id": None, "cred": None}  # fideicomiso con sesion abierta y su credencial
+
+    def reflejar_en_control(f, estado, imp):
         """DECLARADO y YA_DECLARADO se anotan como DECLARADO en la celda del impuesto (solo si decia SI)."""
         if ruta_control() is not None:
             marcar_declarado(ruta_control(), f.fila, f.id, _marca(imp), settings.DATA_DIR / "respaldos")
 
-    def ejecutar(fid):
-        cred = credential_repository.cargar_contribuyente(fid.id, fid.ruc, clave)
+    def ejecutar(fid, imp):
+        en_sesion = activa["id"] == fid.id  # el impuesto anterior de este fideicomiso ya inicio sesion
+        if not en_sesion:
+            activa["cred"] = credential_repository.cargar_contribuyente(fid.id, fid.ruc, clave)
+        activa["id"] = fid.id
         extra = {"ruc": fid.ruc, "responsable": fid.responsable}
         if args.enviar:
             extra["enviar"] = True
+        if en_sesion:
+            extra["sesion_iniciada"] = True
         try:
             if imp == "1031":
-                return retenciones.recorrer(ctx, page, fid.id, periodo, args.hasta, cred, contador, **extra)
-            return _flujo(ctx, page, fid.id, periodo, args.hasta, cred, contador, **extra)
+                return retenciones.recorrer(ctx, page, fid.id, periodo, args.hasta, activa["cred"], contador, **extra)
+            return _flujo(ctx, page, fid.id, periodo, args.hasta, activa["cred"], contador, **extra)
         except AlreadyDeclared:
             raise  # resultado esperado: ya tiene su propia captura (ya_declarado); otra de error seria basura
         except Exception:
@@ -228,8 +240,9 @@ def _procesar_impuesto(args, imp, listos, periodo, repo, ejec, ctx, page, clave,
                 log.warning("No se pudo capturar la pantalla de error")
             raise
 
-    return procesar_lote(listos, periodo, repo, ejecutar, ejec, estado_ok=estado_ok, max_n=max_n, pausa_s=args.pausa,
-                         incluir_revision=args.incluir_revision, impuesto=imp, al_terminar=reflejar_en_control)
+    return procesar_por_fideicomiso(grupos, periodo, repo, ejecutar, ejec, estado_ok=estado_ok, max_n=args.max,
+                                    pausa_s=args.pausa, incluir_revision=args.incluir_revision,
+                                    al_terminar=reflejar_en_control)
 
 
 def main(argv=None) -> int:
