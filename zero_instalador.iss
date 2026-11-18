@@ -6,7 +6,7 @@
 ; usuario que instala (el mismo que luego ejecuta Zero).
 
 #define NombreApp "Zero"
-#define VersionApp "0.1.1"
+#define VersionApp "0.3.0"
 #define PublicadorApp "Enlace"
 #define EjecutableApp "Zero.exe"
 #define DestinoSecreto "Zero.MicrosoftSecret"
